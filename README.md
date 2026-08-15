@@ -43,8 +43,10 @@ pnpm install
 
 Configure a model — any of:
 
-1. Environment variable: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GROQ_API_KEY`, ...
+1. Environment variable: `KEVA_API_KEY` for the bundled Keva/Qwen models, or a built-in provider key such as `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GROQ_API_KEY`, ...
 2. Stored credentials: run the `pi` CLI once (`pi` -> `/login`) — the server reads `~/.pi/agent/auth.json` automatically.
+
+Fresh installs default to Keva's `qwen3.6-35b-a3b` model and also include `qwen3.8-27b`. The API key is read only from `KEVA_API_KEY`; it is not stored in the image or repository. A custom `~/.pi/agent/models.json` replaces this bundled fallback catalog.
 
 Set the login credentials used by the web UI:
 
@@ -73,7 +75,7 @@ Build the production image:
 docker build -t pi-web .
 ```
 
-Run it with persistent conversation data and a provider API key:
+Run it with persistent conversation data and the Keva API key:
 
 ```bash
 docker volume create pi-web-data
@@ -88,11 +90,11 @@ docker run --detach \
   --volume pi-web-data:/data \
   --env PI_WEB_USER="your-username" \
   --env PI_WEB_PASS="a-long-random-password" \
-  --env ANTHROPIC_API_KEY \
+  --env KEVA_API_KEY \
   pi-web
 ```
 
-Open `http://localhost:3000`. Replace `ANTHROPIC_API_KEY` with another provider key if needed. Set `ORIGIN=https://your-domain.example` behind an HTTPS reverse proxy. The image runs as the unprivileged `node` user, includes a health check at `/api/auth/status`, stores durable state in `/data`, and uses `/tmp` for disposable per-conversation workspaces.
+Open `http://localhost:3000`. Set `KEVA_API_KEY` in the shell that launches Docker, or replace it with another provider key if using a custom model configuration. Set `ORIGIN=https://your-domain.example` behind an HTTPS reverse proxy. The image runs as the unprivileged `node` user, includes a health check at `/api/auth/status`, stores durable state in `/data`, and uses `/tmp` for disposable per-conversation workspaces.
 
 For Pi credentials or custom model files instead of environment-based provider keys, mount a directory read-only at `/home/node/.pi/agent`. Do not mount a Docker socket or host directory as an agent workspace. Container isolation is the security boundary for the agent's shell and file tools.
 

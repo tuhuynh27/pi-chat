@@ -7,10 +7,24 @@ import {
 	SettingsManager
 } from '@earendil-works/pi-coding-agent';
 import type { AgentSession, AgentSessionEvent } from '@earendil-works/pi-coding-agent';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import {
+	copyFileSync,
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readdirSync,
+	rmSync,
+	writeFileSync
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { exaExtension } from './exa';
+import {
+	DEFAULT_MODEL,
+	DEFAULT_MODELS_CONFIG,
+	DEFAULT_PROVIDER,
+	DEFAULT_THINKING
+} from './default-models';
 import { toolDetail } from '../types';
 import { applyEvent, dataDir, getConvo, sessionDir, THINKING_CAP, type Convo } from './store';
 import { cleanupOldWorkspaces } from './workspace';
@@ -55,7 +69,15 @@ let scopedSettings: SettingsManager | null = null;
  * them to the data dir keeps the host pi CLI config untouched.
  */
 function getSettings(): SettingsManager {
-	if (!scopedSettings) scopedSettings = SettingsManager.create(dataDir(), dataDir());
+	if (!scopedSettings) {
+		scopedSettings = SettingsManager.create(dataDir(), dataDir());
+		if (!scopedSettings.getDefaultProvider() && !scopedSettings.getDefaultModel()) {
+			scopedSettings.setDefaultModelAndProvider(DEFAULT_PROVIDER, DEFAULT_MODEL);
+		}
+		if (!scopedSettings.getDefaultThinkingLevel()) {
+			scopedSettings.setDefaultThinkingLevel(DEFAULT_THINKING);
+		}
+	}
 	return scopedSettings;
 }
 
@@ -99,9 +121,13 @@ async function makeRuntime(): Promise<ModelRuntime> {
 		const src = join(agentDir, file);
 		if (existsSync(src)) copyFileSync(src, join(runtimeDir, file));
 	}
+	const modelsPath = join(runtimeDir, 'models.json');
+	if (!existsSync(modelsPath)) {
+		writeFileSync(modelsPath, JSON.stringify(DEFAULT_MODELS_CONFIG, null, 2));
+	}
 	return await ModelRuntime.create({
 		authPath: join(runtimeDir, 'auth.json'),
-		modelsPath: join(runtimeDir, 'models.json'),
+		modelsPath,
 		modelsStorePath: join(runtimeDir, 'models-store.json')
 	});
 }
@@ -211,12 +237,19 @@ export interface ModelInfo {
 
 export async function listModels(): Promise<ModelInfo[]> {
 	const models = await (await getRuntime()).getAvailable();
-	return models.map((m) => ({
-		id: `${m.provider}/${m.id}`,
-		name: m.name,
-		provider: m.provider,
-		reasoning: m.reasoning
-	}));
+	return models
+		.map((m) => ({
+			id: `${m.provider}/${m.id}`,
+			name: m.name,
+			provider: m.provider,
+			reasoning: m.reasoning
+		}))
+		.sort((a, b) => {
+			const preferred = `${DEFAULT_PROVIDER}/${DEFAULT_MODEL}`;
+			if (a.id === preferred) return -1;
+			if (b.id === preferred) return 1;
+			return 0;
+		});
 }
 
 /** Resolve a "provider/model-id" id to a Model, or null. */

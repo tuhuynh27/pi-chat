@@ -475,8 +475,8 @@
 						</div>
 						{#if modelsLoaded && models.length === 0}
 							<div class="note">
-								No model available. Set an API key in the server environment — e.g.
-								<code>ANTHROPIC_API_KEY</code> or <code>OPENAI_API_KEY</code> — or log in once with the
+								No model available. Set <code>KEVA_API_KEY</code> in the server environment, use another
+								provider API key, or log in once with the
 								<code>pi</code> CLI, then restart.
 							</div>
 						{/if}
