@@ -2,7 +2,7 @@
 
 Minimal LLM chat web UI for the [Pi Coding Agent](https://www.npmjs.com/package/@earendil-works/pi-coding-agent).
 
-**Frontend**: SvelteKit (Svelte 5, TypeScript) — Inter font, no radius, no shadows.
+**Frontend**: SvelteKit (Svelte 5, TypeScript) - native system font, no radius, no shadows.
 **Backend**: Node.js server (`adapter-node`) embedding the Pi Coding Agent SDK.
 **Tools**: `read`, `bash`, `edit`, `write` + Exa web search/fetch — each conversation isolated in its own temp directory.
 **Persistence**: multi-conversation sidebar; LLM context, history, and tool activity survive restarts.
@@ -46,6 +46,16 @@ Configure a model — any of:
 1. Environment variable: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GROQ_API_KEY`, ...
 2. Stored credentials: run the `pi` CLI once (`pi` -> `/login`) — the server reads `~/.pi/agent/auth.json` automatically.
 
+Set the login credentials used by the web UI:
+
+```bash
+export PI_WEB_USER="your-username"
+export PI_WEB_PASS="a-long-random-password"
+```
+
+In development mode, unset credentials default to username `dev` and password `dev`, and the login form is prefilled. Both environment variables are required in production. The server issues an HttpOnly, SameSite JWT cookie after login. The session expires after 24 hours, and changing either value immediately invalidates existing sessions.
+When serving through HTTPS, set `ORIGIN` to the public `https://` origin or forward `X-Forwarded-Proto: https` so the cookie is also marked Secure.
+
 ## Run
 
 ```bash
@@ -54,6 +64,37 @@ pnpm run build             # production build -> build/
 pnpm start                 # serve production build
 pnpm run start:sandboxed   # macOS seatbelt sandbox (contained)
 ```
+
+### Docker
+
+Build the production image:
+
+```bash
+docker build -t pi-web .
+```
+
+Run it with persistent conversation data and a provider API key:
+
+```bash
+docker volume create pi-web-data
+docker run --detach \
+  --name pi-web \
+  --init \
+  --read-only \
+  --tmpfs /tmp:rw,nosuid,nodev,size=1g \
+  --cap-drop ALL \
+  --security-opt no-new-privileges \
+  --publish 3000:3000 \
+  --volume pi-web-data:/data \
+  --env PI_WEB_USER="your-username" \
+  --env PI_WEB_PASS="a-long-random-password" \
+  --env ANTHROPIC_API_KEY \
+  pi-web
+```
+
+Open `http://localhost:3000`. Replace `ANTHROPIC_API_KEY` with another provider key if needed. Set `ORIGIN=https://your-domain.example` behind an HTTPS reverse proxy. The image runs as the unprivileged `node` user, includes a health check at `/api/auth/status`, stores durable state in `/data`, and uses `/tmp` for disposable per-conversation workspaces.
+
+For Pi credentials or custom model files instead of environment-based provider keys, mount a directory read-only at `/home/node/.pi/agent`. Do not mount a Docker socket or host directory as an agent workspace. Container isolation is the security boundary for the agent's shell and file tools.
 
 ### Sandboxed run (recommended)
 
@@ -70,6 +111,7 @@ The launcher appends an allow rule for the resolved `node` binary; the blanket e
 ## Features
 
 - **Chat history sidebar** — multiple conversations, expand/collapse, rename-by-first-message, per-row delete. Mobile: drawer over dimmed backdrop.
+- **Login access gate** — environment-defined credentials with a 24-hour signed JWT session and protected API routes.
 - Streaming markdown (safe rendering by default)
 - Collapsible thinking blocks and tool activity rows
 - **Exa web tools** — `web_search_exa` + `web_fetch_exa`. Renders titles, URLs, highlights, previews, count + timing.

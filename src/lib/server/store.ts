@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { rename, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
@@ -77,6 +78,7 @@ let lastModel: string | null = null;
 let lastThinking: string | null = null;
 let loaded = false;
 let saveTimer: NodeJS.Timeout | null = null;
+let writeChain = Promise.resolve();
 
 function load() {
 	if (loaded) return;
@@ -94,8 +96,8 @@ function load() {
 	}
 }
 
-function writeNow() {
-	if (!loaded) return;
+function queueWrite(): Promise<void> {
+	if (!loaded) return Promise.resolve();
 	const dir = dataDir();
 	const tmp = join(dir, `.conversations.${process.pid}.tmp`);
 	const payload: FileShape = {
@@ -104,8 +106,16 @@ function writeNow() {
 		lastModel,
 		lastThinking
 	};
-	writeFileSync(tmp, JSON.stringify(payload, null, 1));
-	renameSync(tmp, FILE());
+	const serialized = JSON.stringify(payload, null, 1);
+	writeChain = writeChain
+		.then(async () => {
+			await writeFile(tmp, serialized);
+			await rename(tmp, FILE());
+		})
+		.catch(() => {
+			/* best-effort */
+		});
+	return writeChain;
 }
 
 /** Debounced persist; safe to call on every event. */
@@ -114,24 +124,16 @@ export function scheduleSave() {
 	if (saveTimer) clearTimeout(saveTimer);
 	saveTimer = setTimeout(() => {
 		saveTimer = null;
-		try {
-			writeNow();
-		} catch {
-			/* best-effort */
-		}
+		void queueWrite();
 	}, 300);
 }
 
-export function saveNow() {
+export async function saveNow(): Promise<void> {
 	if (saveTimer) {
 		clearTimeout(saveTimer);
 		saveTimer = null;
 	}
-	try {
-		writeNow();
-	} catch {
-		/* best-effort */
-	}
+	await queueWrite();
 }
 
 /* ---------------- CRUD ---------------- */
@@ -233,13 +235,12 @@ export function touchTitle(id: string, text: string) {
 	scheduleSave();
 }
 
-/** Append/merge streaming updates into the stored items of a conversation. */
-export function applyEvent(id: string, apply: (c: Convo) => void) {
+/** Apply an update and optionally schedule persistence. Streaming runs save once at completion. */
+export function applyEvent(id: string, apply: (c: Convo) => boolean | void, persist = true) {
 	load();
 	const c = convs.get(id);
 	if (!c) return;
-	apply(c);
+	if (apply(c) === false) return;
 	c.updatedAt = Date.now();
-	scheduleSave();
+	if (persist) scheduleSave();
 }
-

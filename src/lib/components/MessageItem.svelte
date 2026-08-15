@@ -1,8 +1,13 @@
 <script lang="ts">
-	import { renderMarkdown } from '$lib/markdown';
+	import SvelteMarkdown, { buildUnsupportedHTML } from '@humanspeak/svelte-markdown';
 	import type { AssistantItem } from '$lib/types';
 
 	let { item }: { item: AssistantItem } = $props();
+
+	// Match the previous markdown-it behavior: GFM-style Markdown, hard line
+	// breaks, and raw HTML rendered as inert text rather than DOM elements.
+	const markdownOptions = { gfm: true, breaks: true };
+	const markdownRenderers = { html: buildUnsupportedHTML() };
 
 	// The thinking block follows the model: open while thinking (full text
 	// streams visibly), auto-collapsed once thinking stops. Manual toggles in
@@ -40,8 +45,15 @@
 {/if}
 
 {#if item.text}
-	{@const html = renderMarkdown(item.text)}
-	<div class="md">{@html html}</div>
-{:else if item.streaming && !item.thinkingActive}
+	<div class="md">
+		<SvelteMarkdown
+			source={item.text}
+			streaming={item.streaming}
+			streamId={item.id}
+			options={markdownOptions}
+			renderers={markdownRenderers}
+		/>
+	</div>
+{:else if item.streaming && !item.thinkingActive && !item.thinking}
 	<span class="waiting" aria-label="waiting"><i>·</i><i>·</i><i>·</i></span>
 {/if}

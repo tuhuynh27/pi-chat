@@ -8,27 +8,67 @@ function sseFrame(event: string, data: unknown): Uint8Array {
 	return encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 }
 
+interface PendingFrame {
+	event: string;
+	data: unknown;
+}
+
+/** Ordered SSE writer that forwards every event immediately and honors stream backpressure. */
+function createSseWriter(controller: ReadableStreamDefaultController<Uint8Array>) {
+	const queue: PendingFrame[] = [];
+	let closeRequested = false;
+	let closed = false;
+
+	const finishClose = () => {
+		if (!closeRequested || queue.length > 0 || closed) return;
+		closed = true;
+		try {
+			controller.close();
+		} catch {
+			/* already closed */
+		}
+	};
+
+	const drain = () => {
+		if (closed) return;
+		try {
+			while (queue.length > 0 && (controller.desiredSize ?? 0) > 0) {
+				const frame = queue.shift();
+				if (frame) controller.enqueue(sseFrame(frame.event, frame.data));
+			}
+		} catch {
+			closed = true;
+			queue.length = 0;
+		}
+		finishClose();
+	};
+
+	return {
+		send(event: string, data: unknown) {
+			if (closed) return;
+			queue.push({ event, data });
+			drain();
+		},
+		drain,
+		close() {
+			if (closed) return;
+			closeRequested = true;
+			drain();
+		},
+		cancel() {
+			closed = true;
+			queue.length = 0;
+		}
+	};
+}
+
 export const POST: RequestHandler = async ({ request }) => {
+	let writer: ReturnType<typeof createSseWriter> | null = null;
 	const stream = new ReadableStream<Uint8Array>({
 		start(controller) {
-			let closed = false;
-			const send = (event: string, data: unknown) => {
-				if (closed) return;
-				try {
-					controller.enqueue(sseFrame(event, data));
-				} catch {
-					closed = true;
-				}
-			};
-			const close = () => {
-				if (closed) return;
-				closed = true;
-				try {
-					controller.close();
-				} catch {
-					/* already closed */
-				}
-			};
+			writer = createSseWriter(controller);
+			const send = writer.send;
+			const close = writer.close;
 
 			(async () => {
 				try {
@@ -56,7 +96,9 @@ export const POST: RequestHandler = async ({ request }) => {
 
 					// Record the user message + title BEFORE the run, so history
 					// is correct even if the client navigates away immediately.
-					applyEvent(convo.id, (c) => c.items.push({ role: 'user', text }));
+					applyEvent(convo.id, (c) => {
+						c.items.push({ role: 'user', text });
+					});
 					touchTitle(convo.id, text);
 
 					pi.busy = true;
@@ -69,6 +111,7 @@ export const POST: RequestHandler = async ({ request }) => {
 					});
 
 					let ok = true;
+					let savePromise = Promise.resolve();
 					try {
 						await pi.agent.prompt(text);
 					} catch (err) {
@@ -77,11 +120,12 @@ export const POST: RequestHandler = async ({ request }) => {
 					} finally {
 						unsubscribe();
 						pi.busy = false;
-						saveNow();
+						savePromise = saveNow();
 					}
 
 					send('done', { ok });
 					close();
+					await savePromise;
 				} catch (err) {
 					// Session/model setup failure (e.g. no API key configured)
 					send('error', {
@@ -93,6 +137,12 @@ export const POST: RequestHandler = async ({ request }) => {
 					close();
 				}
 			})();
+		},
+		pull() {
+			writer?.drain();
+		},
+		cancel() {
+			writer?.cancel();
 		}
 	});
 

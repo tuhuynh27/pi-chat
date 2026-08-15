@@ -17,10 +17,10 @@ export const GET: RequestHandler<{ id: string }> = ({ params }) => {
 	});
 };
 
-export const DELETE: RequestHandler<{ id: string }> = ({ params }) => {
+export const DELETE: RequestHandler<{ id: string }> = async ({ params }) => {
 	disposeSession(params.id);
 	const ok = deleteConvo(params.id);
-	saveNow();
+	await saveNow();
 	if (!ok) return json({ error: 'Conversation not found.' }, { status: 404 });
 	return json({ ok: true });
 };

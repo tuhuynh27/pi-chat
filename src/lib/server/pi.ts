@@ -321,57 +321,86 @@ export function toSseEvents(e: AgentSessionEvent): SseEvent[] {
  * client navigates away.
  */
 export function applyToConvo(id: string, e: AgentSessionEvent): void {
-	applyEvent(id, (c) => {
-		switch (e.type) {
-			case 'message_update': {
-				const m = e.assistantMessageEvent;
-				if (m.type !== 'text_delta' && m.type !== 'thinking_delta') return;
-				let a = c.items[c.items.length - 1];
-				if (!a || a.role !== 'assistant') {
-					a = { role: 'assistant', text: '', thinking: '' };
-					c.items.push(a);
-				}
-				if (m.type === 'text_delta') {
-					a.text = (a.text ?? '') + m.delta;
-				} else {
-					a.thinking = ((a.thinking ?? '') + m.delta).slice(0, THINKING_CAP);
-				}
-				break;
-			}
-			case 'tool_execution_start':
-				c.items.push({
-					id: e.toolCallId,
-					role: 'tool',
-					name: e.toolName,
-					detail: toolDetail(e.toolName, e.args),
-					status: 'running',
-					output: ''
-				});
-				break;
-			case 'tool_execution_end': {
-				const t = c.items.find((i) => i.role === 'tool' && i.id === e.toolCallId);
-				if (!t) return;
-				t.status = e.isError ? 'error' : 'done';
-				t.output = toolOutput(e.result);
-				const details = VISUAL_TOOLS.has(e.toolName) ? safeDetails(e.result) : null;
-				if (details) t.details = details;
-				break;
-			}
-			case 'message_end': {
-				const msg = e.message as { role?: string; stopReason?: string; errorMessage?: string };
-				if (
-					msg.role === 'assistant' &&
-					(msg.stopReason === 'error' || msg.stopReason === 'aborted') &&
-					msg.errorMessage
-				) {
-					c.items.push({ role: 'error', text: msg.errorMessage });
-				}
-				break;
-			}
-			default:
-				break;
+	if (
+		e.type === 'message_update' &&
+		e.assistantMessageEvent.type !== 'text_delta' &&
+		e.assistantMessageEvent.type !== 'thinking_delta'
+	) {
+		return;
+	}
+	if (e.type === 'message_end') {
+		const msg = e.message as { role?: string; stopReason?: string; errorMessage?: string };
+		if (
+			msg.role !== 'assistant' ||
+			(msg.stopReason !== 'error' && msg.stopReason !== 'aborted') ||
+			!msg.errorMessage
+		) {
+			return;
 		}
-	});
+	}
+	if (
+		e.type !== 'message_update' &&
+		e.type !== 'tool_execution_start' &&
+		e.type !== 'tool_execution_end' &&
+		e.type !== 'message_end'
+	) {
+		return;
+	}
+	applyEvent(
+		id,
+		(c) => {
+			switch (e.type) {
+				case 'message_update': {
+					const m = e.assistantMessageEvent;
+					if (m.type !== 'text_delta' && m.type !== 'thinking_delta') return;
+					let a = c.items[c.items.length - 1];
+					if (!a || a.role !== 'assistant') {
+						a = { role: 'assistant', text: '', thinking: '' };
+						c.items.push(a);
+					}
+					if (m.type === 'text_delta') {
+						a.text = (a.text ?? '') + m.delta;
+					} else {
+						a.thinking = ((a.thinking ?? '') + m.delta).slice(-THINKING_CAP);
+					}
+					break;
+				}
+				case 'tool_execution_start':
+					c.items.push({
+						id: e.toolCallId,
+						role: 'tool',
+						name: e.toolName,
+						detail: toolDetail(e.toolName, e.args),
+						status: 'running',
+						output: ''
+					});
+					break;
+				case 'tool_execution_end': {
+					const t = c.items.find((i) => i.role === 'tool' && i.id === e.toolCallId);
+					if (!t) return false;
+					t.status = e.isError ? 'error' : 'done';
+					t.output = toolOutput(e.result);
+					const details = VISUAL_TOOLS.has(e.toolName) ? safeDetails(e.result) : null;
+					if (details) t.details = details;
+					break;
+				}
+				case 'message_end': {
+					const msg = e.message as { role?: string; stopReason?: string; errorMessage?: string };
+					if (
+						msg.role === 'assistant' &&
+						(msg.stopReason === 'error' || msg.stopReason === 'aborted') &&
+						msg.errorMessage
+					) {
+						c.items.push({ role: 'error', text: msg.errorMessage });
+					}
+					break;
+				}
+				default:
+					break;
+			}
+		},
+		false
+	);
 }
 
 /** Re-export for routes that need to look up conversations. */

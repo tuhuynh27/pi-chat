@@ -9,7 +9,8 @@
 		onModel,
 		onThinking,
 		onNew,
-		onMenu
+		onMenu,
+		onLogout
 	}: {
 		model: string;
 		models: { id: string; name: string; provider: string }[];
@@ -19,6 +20,7 @@
 		onThinking: (level: string) => void;
 		onNew: () => void;
 		onMenu: () => void;
+		onLogout: () => void;
 	} = $props();
 
 	const levels = ['off', 'minimal', 'low', 'medium', 'high'];
@@ -58,6 +60,11 @@
 				<path d="M5.5 1v9M1 5.5h9" stroke="currentColor" stroke-width="1.5" fill="none" />
 			</svg>
 			New
+		</button>
+		<button class="icon-btn logout" onclick={onLogout} aria-label="Sign out" title="Sign out">
+			<svg width="13" height="13" viewBox="0 0 13 13" aria-hidden="true">
+				<path d="M5.5 1.5H2v10h3.5M8 3.5l3 3-3 3M4 6.5h7" stroke="currentColor" stroke-width="1.35" fill="none" />
+			</svg>
 		</button>
 	</div>
 </header>
