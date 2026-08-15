@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { env } from '$env/dynamic/private';
 import type { InlineExtension } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
 
@@ -16,7 +17,7 @@ const MAX_SEARCH_HIGHLIGHT_CHARS = 1200;
 
 /** Key resolution: EXA_API_KEY env var, then macOS Keychain. */
 function getApiKey(): string {
-	const envKey = process.env.EXA_API_KEY;
+	const envKey = env.EXA_API_KEY;
 	if (envKey) return envKey;
 
 	const account = process.env.USER;
