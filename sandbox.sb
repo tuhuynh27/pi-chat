@@ -1,0 +1,44 @@
+; pi-web sandbox profile (macOS seatbelt)
+;
+; Usage:  sandbox-exec -f sandbox.sb node build     (npm run start:sandboxed)
+;
+; What it does:
+;   - allow everything by default (the node runtime needs broad read access)
+;   - block all file writes outside the OS temp area
+;   - block all child-process spawning, which makes the agent's `bash` tool
+;     (and any other exec-based escape) impossible
+;   - one exec exception: /usr/bin/security, used by the bundled Exa
+;     extension to read the API key from the macOS Keychain
+;
+; Seatbelt rule order: the LAST matching rule wins, so the re-allow rules
+; must come after the broad denies.
+
+(version 1)
+
+(allow default)
+
+; --- file writes: OS temp area only ---
+(deny file-write* (subpath "/Users"))
+(deny file-write* (subpath "/Applications"))
+(deny file-write* (subpath "/Library"))
+(deny file-write* (subpath "/System"))
+(deny file-write* (subpath "/usr"))
+(deny file-write* (subpath "/bin"))
+(deny file-write* (subpath "/sbin"))
+(deny file-write* (subpath "/etc"))
+(deny file-write* (subpath "/opt"))
+(deny file-write* (subpath "/var"))
+(deny file-write* (subpath "/private"))
+(allow file-write* (subpath "/private/var/folders"))
+(allow file-write* (subpath "/private/tmp"))
+(allow file-write* (subpath "/var/folders"))
+(allow file-write* (subpath "/var/tmp"))
+(allow file-write* (subpath "/tmp"))
+
+; --- no child processes ---
+; fork is allowed (node's spawn machinery needs it); every spawn must still
+; execve a binary, and exec is denied except for the Exa keychain helper.
+; So the only process this server can ever spawn is /usr/bin/security.
+(deny process-exec)
+(allow process-exec (literal "/usr/bin/security"))
+; (the node binary itself is allowed for the initial exec — see sandbox-start.sh)

@@ -1,0 +1,24 @@
+# Build output
+build/
+.svelte-kit/
+
+# Dependencies
+node_modules/
+
+# OS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# Env (per-machine secrets)
+.env
+.env.local
+.env.*.local
+
+# Pi-web data dir (conversations, sessions)
+.pi-web/
+
+# Temp workspaces
+pi-web-*/
