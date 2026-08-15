@@ -364,6 +364,12 @@
 		}
 	}
 
+	@media (max-width: 719px) {
+		input {
+			font-size: 16px;
+		}
+	}
+
 	@media (prefers-reduced-motion: reduce) {
 		.auth-panel,
 		.auth-check > span {
