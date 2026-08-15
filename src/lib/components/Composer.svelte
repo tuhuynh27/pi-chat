@@ -21,6 +21,7 @@
 		const t = text.trim();
 		if (!t || busy) return;
 		text = '';
+		if (window.matchMedia('(max-width: 719px)').matches) el.blur();
 		requestAnimationFrame(autoresize);
 		onSend(t);
 	}
