@@ -1,10 +1,27 @@
 /**
- * Built-in fallback catalog for fresh installs, including the Docker image.
- * A user-provided ~/.pi/agent/models.json still takes precedence.
+ * Environment-backed Pi defaults. A complete custom model catalog can be
+ * supplied as one-line JSON in PI_WEB_MODELS_JSON.
  */
-export const DEFAULT_PROVIDER = 'keva';
-export const DEFAULT_MODEL = 'qwen3.6-35b-a3b';
-export const DEFAULT_THINKING = 'low';
+export const DEFAULT_PROVIDER = process.env.PI_WEB_DEFAULT_PROVIDER?.trim() || 'keva';
+export const DEFAULT_MODEL = process.env.PI_WEB_DEFAULT_MODEL?.trim() || 'qwen3.6-35b-a3b';
+type DefaultThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+const THINKING_LEVELS: DefaultThinkingLevel[] = [
+	'off',
+	'minimal',
+	'low',
+	'medium',
+	'high',
+	'xhigh',
+	'max'
+];
+
+function defaultThinkingFromEnv(): DefaultThinkingLevel {
+	const value = process.env.PI_WEB_DEFAULT_THINKING?.trim() || 'low';
+	if ((THINKING_LEVELS as string[]).includes(value)) return value as DefaultThinkingLevel;
+	throw new Error(`PI_WEB_DEFAULT_THINKING has unsupported value "${value}".`);
+}
+
+export const DEFAULT_THINKING = defaultThinkingFromEnv();
 
 export const DEFAULT_MODELS_CONFIG = {
 	providers: {
@@ -51,3 +68,27 @@ export const DEFAULT_MODELS_CONFIG = {
 		}
 	}
 } as const;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** Resolve the model catalog exclusively from the process environment. */
+export function modelsConfigFromEnv(): unknown {
+	const raw = process.env.PI_WEB_MODELS_JSON?.trim();
+	if (!raw) return DEFAULT_MODELS_CONFIG;
+
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(raw);
+	} catch (error) {
+		throw new Error(
+			`PI_WEB_MODELS_JSON must be valid JSON: ${error instanceof Error ? error.message : String(error)}`
+		);
+	}
+
+	if (!isRecord(parsed) || !isRecord(parsed.providers)) {
+		throw new Error('PI_WEB_MODELS_JSON must contain a top-level "providers" object.');
+	}
+	return parsed;
+}

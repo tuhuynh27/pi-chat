@@ -1,29 +1,24 @@
 import {
 	createAgentSession,
 	DefaultResourceLoader,
-	getAgentDir,
 	ModelRuntime,
 	SessionManager,
 	SettingsManager
 } from '@earendil-works/pi-coding-agent';
-import type { AgentSession, AgentSessionEvent } from '@earendil-works/pi-coding-agent';
-import {
-	copyFileSync,
-	existsSync,
-	mkdirSync,
-	mkdtempSync,
-	readdirSync,
-	rmSync,
-	writeFileSync
-} from 'node:fs';
+import type {
+	AgentSession,
+	AgentSessionEvent,
+	CreateModelRuntimeOptions
+} from '@earendil-works/pi-coding-agent';
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { exaExtension } from './exa';
 import {
 	DEFAULT_MODEL,
-	DEFAULT_MODELS_CONFIG,
 	DEFAULT_PROVIDER,
-	DEFAULT_THINKING
+	DEFAULT_THINKING,
+	modelsConfigFromEnv
 } from './default-models';
 import { toolDetail } from '../types';
 import { applyEvent, dataDir, getConvo, sessionDir, THINKING_CAP, type Convo } from './store';
@@ -62,6 +57,39 @@ export interface PiSession {
 const sessions = new Map<string, PiSession>();
 let runtime: ModelRuntime | null = null;
 let scopedSettings: SettingsManager | null = null;
+let isolatedAgentDir: string | null = null;
+
+type CredentialStore = NonNullable<CreateModelRuntimeOptions['credentials']>;
+type Credential = Exclude<Awaited<ReturnType<CredentialStore['read']>>, undefined>;
+
+/** Volatile store prevents the SDK from consulting or writing auth.json. */
+function createEnvironmentCredentialStore(): CredentialStore {
+	const credentials = new Map<string, Credential>();
+	return {
+		async read(providerId, options) {
+			options?.signal?.throwIfAborted();
+			return credentials.get(providerId);
+		},
+		async list(options) {
+			options?.signal?.throwIfAborted();
+			return [...credentials].map(([providerId, credential]) => ({
+				providerId,
+				type: credential.type
+			}));
+		},
+		async modify(providerId, modify, options) {
+			options?.signal?.throwIfAborted();
+			const next = await modify(credentials.get(providerId));
+			options?.signal?.throwIfAborted();
+			if (next) credentials.set(providerId, next);
+			return next;
+		},
+		async delete(providerId, options) {
+			options?.signal?.throwIfAborted();
+			credentials.delete(providerId);
+		}
+	};
+}
 
 /**
  * Settings manager whose global scope is the app data dir, NOT ~/.pi/agent.
@@ -107,28 +135,25 @@ cleanupOldWorkspaces(new Set(sessions.keys()));
 /* ---------------- model runtime ---------------- */
 
 /**
- * Copy the host's Pi credentials/models into the temp area and run the model
- * runtime against those copies.
- *
- * Why: the runtime writes a lock file next to auth.json (~/.pi/agent), which
- * the seatbelt profile denies. Running from temp copies also avoids lock
- * contention with a concurrently running pi CLI.
+ * Give the SDK an isolated config directory generated from environment
+ * values. Nothing is discovered or copied from the host's ~/.pi directory.
  */
+function getIsolatedAgentDir(): string {
+	if (isolatedAgentDir) return isolatedAgentDir;
+	isolatedAgentDir = mkdtempSync(join(tmpdir(), 'pi-web-agent-'));
+	writeFileSync(
+		join(isolatedAgentDir, 'models.json'),
+		JSON.stringify(modelsConfigFromEnv(), null, 2)
+	);
+	return isolatedAgentDir;
+}
+
 async function makeRuntime(): Promise<ModelRuntime> {
-	const agentDir = getAgentDir();
-	const runtimeDir = mkdtempSync(join(tmpdir(), 'pi-web-rt-'));
-	for (const file of ['auth.json', 'models.json', 'models-store.json']) {
-		const src = join(agentDir, file);
-		if (existsSync(src)) copyFileSync(src, join(runtimeDir, file));
-	}
-	const modelsPath = join(runtimeDir, 'models.json');
-	if (!existsSync(modelsPath)) {
-		writeFileSync(modelsPath, JSON.stringify(DEFAULT_MODELS_CONFIG, null, 2));
-	}
+	const agentDir = getIsolatedAgentDir();
 	return await ModelRuntime.create({
-		authPath: join(runtimeDir, 'auth.json'),
-		modelsPath,
-		modelsStorePath: join(runtimeDir, 'models-store.json')
+		credentials: createEnvironmentCredentialStore(),
+		modelsPath: join(agentDir, 'models.json'),
+		modelsStorePath: join(agentDir, 'models-store.json')
 	});
 }
 
@@ -143,8 +168,11 @@ export async function getRuntime(): Promise<ModelRuntime> {
 async function makeResourceLoader(cwd: string) {
 	const loader = new DefaultResourceLoader({
 		cwd,
-		agentDir: getAgentDir(),
+		agentDir: getIsolatedAgentDir(),
 		noExtensions: true,
+		noSkills: true,
+		noPromptTemplates: true,
+		noThemes: true,
 		extensionFactories: [exaExtension]
 	});
 	await loader.reload();
@@ -178,6 +206,7 @@ export async function getSession(id: string, convo: Convo): Promise<PiSession> {
 	const model = convo.model ? await resolveModelId(convo.model) : null;
 	const { session } = await createAgentSession({
 		cwd,
+		agentDir: getIsolatedAgentDir(),
 		sessionManager: sessionManagerFor(id, cwd),
 		modelRuntime: await getRuntime(),
 		resourceLoader: await makeResourceLoader(cwd),

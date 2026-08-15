@@ -15,5 +15,18 @@ export const handle: Handle = async ({ event, resolve }) => {
 		}
 	}
 
+	// The HTML shell contains deployment-specific hashed asset URLs. Never let a
+	// browser or reverse proxy reuse it after a new image has been deployed.
+	if (
+		event.request.method === 'GET' &&
+		!event.url.pathname.startsWith('/api/')
+	) {
+		event.setHeaders({
+			'cache-control': 'private, no-store, max-age=0',
+			pragma: 'no-cache',
+			expires: '0'
+		});
+	}
+
 	return resolve(event);
 };

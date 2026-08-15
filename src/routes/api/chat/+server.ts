@@ -132,7 +132,7 @@ export const POST: RequestHandler = async ({ request }) => {
 						message:
 							err instanceof Error
 								? err.message
-								: 'Failed to start the Pi agent. Is a model configured? (set KEVA_API_KEY or another provider API key, or run the pi CLI once to log in.)'
+								: 'Failed to start the Pi agent. Set a provider API key and model configuration in the server environment.'
 					});
 					close();
 				}

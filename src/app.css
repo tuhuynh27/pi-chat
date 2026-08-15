@@ -70,7 +70,8 @@ select {
 
 .app {
 	display: flex;
-	height: 100dvh;
+	height: var(--viewport-height, 100dvh);
+	transform: translateY(var(--viewport-offset-top, 0));
 	overflow: hidden;
 }
 

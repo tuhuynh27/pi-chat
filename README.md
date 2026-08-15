@@ -41,19 +41,24 @@ Data dir defaults to `~/.pi-web` (`PI_WEB_DATA_DIR` to override).
 pnpm install
 ```
 
-Configure a model — any of:
-
-1. Environment variable: `KEVA_API_KEY` for the bundled Keva/Qwen models, or a built-in provider key such as `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GROQ_API_KEY`, ...
-2. Stored credentials: run the `pi` CLI once (`pi` -> `/login`) — the server reads `~/.pi/agent/auth.json` automatically.
-
-Fresh installs default to Keva's `qwen3.6-35b-a3b` model and also include `qwen3.8-27b`. The API key is read only from `KEVA_API_KEY`; it is not stored in the image or repository. A custom `~/.pi/agent/models.json` replaces this bundled fallback catalog.
-
-Set the login credentials used by the web UI:
+Copy the environment template and set the web login plus at least one model provider key:
 
 ```bash
-export PI_WEB_USER="your-username"
-export PI_WEB_PASS="a-long-random-password"
+cp .env.example .env
 ```
+
+Fresh installs default to Keva's `qwen3.6-35b-a3b` model and also include `qwen3.8-27b`. Set `KEVA_API_KEY` for those models, or use a built-in provider key such as `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `GROQ_API_KEY` and select one of its available models.
+
+Pi configuration is environment-only. The application never reads credentials, models, settings, skills, prompts, themes, or extensions from `~/.pi`. `pnpm start` loads `.env` with Node's native environment-file support. Docker should receive the same file with `--env-file .env`.
+
+For a custom provider catalog, set these optional variables:
+
+- `PI_WEB_MODELS_JSON`: the complete, one-line JSON content that would normally be in Pi's `models.json`. API keys should reference another environment variable, for example `"apiKey":"$MY_LLM_API_KEY"`.
+- `PI_WEB_DEFAULT_PROVIDER`: initial provider for a fresh data volume. Defaults to `keva`.
+- `PI_WEB_DEFAULT_MODEL`: initial model for a fresh data volume. Defaults to `qwen3.6-35b-a3b`.
+- `PI_WEB_DEFAULT_THINKING`: initial thinking level. Defaults to `low`.
+
+The selected model and thinking level remain application state in the data volume, so existing user choices survive restarts and take precedence over these initial defaults.
 
 In development mode, unset credentials default to username `dev` and password `dev`, and the login form is prefilled. Both environment variables are required in production. The server issues an HttpOnly, SameSite JWT cookie after login. The session expires after 24 hours, and changing either value immediately invalidates existing sessions.
 When serving through HTTPS, set `ORIGIN` to the public `https://` origin or forward `X-Forwarded-Proto: https` so the cookie is also marked Secure.
@@ -75,7 +80,7 @@ Build the production image:
 docker build -t pi-web .
 ```
 
-Run it with persistent conversation data and the Keva API key:
+Run it with persistent conversation data and the environment file:
 
 ```bash
 docker volume create pi-web-data
@@ -88,15 +93,15 @@ docker run --detach \
   --security-opt no-new-privileges \
   --publish 3000:3000 \
   --volume pi-web-data:/data \
-  --env PI_WEB_USER="your-username" \
-  --env PI_WEB_PASS="a-long-random-password" \
-  --env KEVA_API_KEY \
+  --env-file .env \
   pi-web
 ```
 
-Open `http://localhost:3000`. Set `KEVA_API_KEY` in the shell that launches Docker, or replace it with another provider key if using a custom model configuration. Set `ORIGIN=https://your-domain.example` behind an HTTPS reverse proxy. The image runs as the unprivileged `node` user, includes a health check at `/api/auth/status`, stores durable state in `/data`, and uses `/tmp` for disposable per-conversation workspaces.
+Open `http://localhost:3000`. Set `ORIGIN=https://your-domain.example` behind an HTTPS reverse proxy. The image runs as the unprivileged `node` user, includes a health check at `/api/auth/status`, stores durable state in `/data`, and uses `/tmp` for disposable workspaces and generated Pi runtime files. Do not mount a Pi config directory, Docker socket, or host directory as an agent workspace. Container isolation is the security boundary for the agent's shell and file tools.
 
-For Pi credentials or custom model files instead of environment-based provider keys, mount a directory read-only at `/home/node/.pi/agent`. Do not mount a Docker socket or host directory as an agent workspace. Container isolation is the security boundary for the agent's shell and file tools.
+### Deployment caching
+
+Every build emits content-hashed JavaScript and CSS under `/_app/immutable/`; adapter-node serves those files with a one-year immutable cache because changed content receives a new URL. The HTML shell contains the current asset URLs and is served with `Cache-Control: private, no-store, max-age=0`, plus legacy no-cache headers. A reverse proxy or CDN must preserve that HTML policy. Do not apply a blanket static cache rule to `/` or other HTML routes.
 
 ### Sandboxed run (recommended)
 
@@ -104,7 +109,7 @@ For Pi credentials or custom model files instead of environment-based provider k
 
 - **No writes** outside OS temp area and the data dir (`~/.pi-web`). File tool escapes return `EPERM`.
 - **No process spawns** — the `bash` tool is removed (`excludeTools`), and the OS denies every `execve` except `/usr/bin/security` (Exa keychain access).
-- **Reads allowed** — `~/.pi/agent` config (credentials, models, settings) is readable.
+- **Reads allowed** - host reads by absolute path remain possible, but no host Pi config is loaded.
 
 The launcher appends an allow rule for the resolved `node` binary; the blanket exec-deny would block the first `execve`. macOS-only. On Linux, use a container (e.g. Docker) for equivalent containment.
 

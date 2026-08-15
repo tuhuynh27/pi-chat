@@ -56,6 +56,7 @@
 		curAsst = null;
 	}
 	let lastError = '';
+	let appEl: HTMLDivElement;
 	let scrollEl: HTMLDivElement;
 	let stick = true;
 	let scrollFrame = 0;
@@ -376,6 +377,53 @@
 
 	/* ---------------- init ---------------- */
 
+	onMount(() => {
+		const viewport = window.visualViewport;
+		if (!viewport) return;
+
+		let frame = 0;
+		let settleTimer = 0;
+		const syncViewport = () => {
+			if (frame) cancelAnimationFrame(frame);
+			frame = requestAnimationFrame(() => {
+				frame = 0;
+				if (viewport.scale !== 1) {
+					appEl.style.removeProperty('--viewport-height');
+					appEl.style.removeProperty('--viewport-offset-top');
+					return;
+				}
+
+				// Mobile WebKit can pan the visual viewport to reveal the composer
+				// without scrolling the document, then retain that pan after blur.
+				// Size and anchor the shell to the portion that is actually visible.
+				const pageOffset = viewport.pageTop - window.scrollY;
+				const offsetTop = Math.max(0, viewport.offsetTop, pageOffset);
+				appEl.style.setProperty('--viewport-height', `${viewport.height}px`);
+				appEl.style.setProperty('--viewport-offset-top', `${offsetTop}px`);
+			});
+		};
+		const settleViewport = () => {
+			syncViewport();
+			window.clearTimeout(settleTimer);
+			settleTimer = window.setTimeout(syncViewport, 350);
+		};
+
+		syncViewport();
+		viewport.addEventListener('resize', syncViewport);
+		viewport.addEventListener('scroll', syncViewport);
+		window.addEventListener('resize', syncViewport);
+		document.addEventListener('focusout', settleViewport);
+
+		return () => {
+			if (frame) cancelAnimationFrame(frame);
+			window.clearTimeout(settleTimer);
+			viewport.removeEventListener('resize', syncViewport);
+			viewport.removeEventListener('scroll', syncViewport);
+			window.removeEventListener('resize', syncViewport);
+			document.removeEventListener('focusout', settleViewport);
+		};
+	});
+
 	async function initialize() {
 		ready = false;
 		convos = [];
@@ -436,7 +484,7 @@
 	});
 </script>
 
-<div class="app" inert={authState !== 'authenticated'} aria-hidden={authState !== 'authenticated'}>
+<div class="app" bind:this={appEl} inert={authState !== 'authenticated'} aria-hidden={authState !== 'authenticated'}>
 	<Sidebar
 		open={sidebarOpen}
 		conversations={convos}
@@ -475,9 +523,7 @@
 						</div>
 						{#if modelsLoaded && models.length === 0}
 							<div class="note">
-								No model available. Set <code>KEVA_API_KEY</code> in the server environment, use another
-								provider API key, or log in once with the
-								<code>pi</code> CLI, then restart.
+								No model available. Set a provider API key in <code>.env</code>, then restart the server.
 							</div>
 						{/if}
 					</div>

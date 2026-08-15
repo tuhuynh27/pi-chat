@@ -25,4 +25,4 @@ trap 'rm -f "$PROFILE"' EXIT
 
 export PI_WEB_SANDBOX=1
 export PI_WEB_DATA_DIR="$DATA_DIR"
-exec sandbox-exec -f "$PROFILE" node build
+exec sandbox-exec -f "$PROFILE" node --env-file-if-exists=.env build

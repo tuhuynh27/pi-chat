@@ -36,8 +36,8 @@ ENV NODE_ENV=production \
 
 WORKDIR /app
 
-RUN mkdir -p /data /home/node/.pi/agent \
-	&& chown -R node:node /data /home/node/.pi
+RUN mkdir -p /data \
+	&& chown node:node /data
 
 COPY --from=production-dependencies --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/build ./build
