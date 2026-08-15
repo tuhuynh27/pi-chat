@@ -383,24 +383,36 @@
 
 		let frame = 0;
 		let settleTimer = 0;
+		const isTextEntry = (target: EventTarget | null) =>
+			target instanceof HTMLInputElement ||
+			target instanceof HTMLTextAreaElement ||
+			(target instanceof HTMLElement && target.isContentEditable);
+		const clearViewportOverride = () => {
+			appEl.style.removeProperty('--viewport-height');
+			appEl.style.removeProperty('--viewport-offset-top');
+		};
 		const syncViewport = () => {
 			if (frame) cancelAnimationFrame(frame);
 			frame = requestAnimationFrame(() => {
 				frame = 0;
-				if (viewport.scale !== 1) {
-					appEl.style.removeProperty('--viewport-height');
-					appEl.style.removeProperty('--viewport-offset-top');
+				if (viewport.scale !== 1 || isTextEntry(document.activeElement)) {
+					clearViewportOverride();
 					return;
 				}
 
 				// Mobile WebKit can pan the visual viewport to reveal the composer
 				// without scrolling the document, then retain that pan after blur.
-				// Size and anchor the shell to the portion that is actually visible.
+				// Leave keyboard opening to the browser and correct only after blur.
 				const pageOffset = viewport.pageTop - window.scrollY;
 				const offsetTop = Math.max(0, viewport.offsetTop, pageOffset);
 				appEl.style.setProperty('--viewport-height', `${viewport.height}px`);
 				appEl.style.setProperty('--viewport-offset-top', `${offsetTop}px`);
 			});
+		};
+		const beginEditing = (event: FocusEvent) => {
+			if (!isTextEntry(event.target)) return;
+			window.clearTimeout(settleTimer);
+			clearViewportOverride();
 		};
 		const settleViewport = () => {
 			syncViewport();
@@ -412,6 +424,7 @@
 		viewport.addEventListener('resize', syncViewport);
 		viewport.addEventListener('scroll', syncViewport);
 		window.addEventListener('resize', syncViewport);
+		document.addEventListener('focusin', beginEditing);
 		document.addEventListener('focusout', settleViewport);
 
 		return () => {
@@ -420,6 +433,7 @@
 			viewport.removeEventListener('resize', syncViewport);
 			viewport.removeEventListener('scroll', syncViewport);
 			window.removeEventListener('resize', syncViewport);
+			document.removeEventListener('focusin', beginEditing);
 			document.removeEventListener('focusout', settleViewport);
 		};
 	});
