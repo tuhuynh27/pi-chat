@@ -25,9 +25,9 @@
 	} from '$lib/types';
 
 	const SUGGESTIONS = [
-		'What can you help me with?',
-		'Search the web for the latest Svelte release notes',
-		'Write a small node script that prints the first 10 Fibonacci numbers'
+		'Build a tiny browser game with one surprising mechanic',
+		'Research what changed in Svelte this month and create a working demo',
+		'Create a CLI that turns messy notes into a clean project plan'
 	];
 
 	let convos = $state<ConvoSummary[]>([]);
@@ -526,9 +526,9 @@
 			<div class="thread">
 				{#if ready && items.length === 0}
 					<div class="empty">
-						<div class="big">Ask anything</div>
+						<div class="big">What should we make?</div>
 						<div class="sub">
-							Pi is a coding agent in an isolated workspace. It reads, writes, runs code, and searches the web.
+							Start with a half-formed idea. Pi can research the edges, build it in an isolated workspace, and run the result.
 						</div>
 						<div class="sugs">
 							{#each SUGGESTIONS as s (s)}
