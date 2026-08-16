@@ -12,6 +12,7 @@
 	import LoginGate from '$lib/components/LoginGate.svelte';
 	import LoadingScreen from '$lib/components/LoadingScreen.svelte';
 	import { readSse } from '$lib/sse';
+	import { createSmoother } from '$lib/smoother';
 	import { initTheme, setTheme, type Theme } from '$lib/theme';
 	import {
 		isExaTool,
@@ -57,9 +58,11 @@
 
 	let curAsst: AssistantItem | null = null;
 	const localRuns = new Set<string>();
-	const THINKING_CAP = 32000;
+	/** Reveals buffered deltas a few chars per frame; see $lib/smoother. */
+	const smoother = createSmoother(() => scrollBottom());
 
 	function finishAsst() {
+		smoother.flush();
 		if (curAsst) {
 			curAsst.streaming = false;
 			curAsst.thinkingActive = false;
@@ -173,18 +176,22 @@
 			case 'delta': {
 				const a = ensureAsst();
 				// First visible text ends the thinking phase (if any).
-				if (a.thinkingActive) a.thinkingActive = false;
-				a.text += String(d.text ?? '');
+				if (a.thinkingActive) {
+					smoother.flushThinking();
+					a.thinkingActive = false;
+				}
+				smoother.push(a, 'text', String(d.text ?? ''));
 				break;
 			}
 			case 'thinking': {
 				const a = ensureAsst();
 				a.thinkingActive = true;
-				a.thinking = (a.thinking + String(d.text ?? '')).slice(-THINKING_CAP);
+				smoother.push(a, 'thinking', String(d.text ?? ''));
 				break;
 			}
 			case 'thinking_end': {
 				// Thinking block finished (text/tool may still be pending).
+				smoother.flushThinking();
 				if (curAsst?.thinkingActive) curAsst.thinkingActive = false;
 				break;
 			}
@@ -219,9 +226,8 @@
 				finishAsst();
 				fail(String(d.message ?? 'Something went wrong.'));
 				break;
-			case 'done':
-				finishAsst();
-				break;
+			// 'done' is handled by the stream loops' finally blocks: they let the
+			// smoother drain naturally (settle) instead of dumping the tail at once.
 		}
 	}
 
@@ -247,6 +253,8 @@
 	}
 
 	function showConvo(c: ConvoInfo) {
+		// Pending reveal (if any) targets items being replaced; drop it.
+		smoother.reset();
 		activeId = c.id;
 		items = toItems(c.items);
 		model = c.model ?? models[0]?.id ?? '';
@@ -310,6 +318,7 @@
 		if (!res?.ok) return;
 		const c = (await res.json().catch(() => null)) as ConvoInfo | null;
 		if (!c) return;
+		smoother.reset();
 		activeId = c.id;
 		items = [];
 		draft = '';
@@ -383,6 +392,8 @@
 			markBusy(cid, false);
 			currentRetry = null;
 			if (activeId === cid) {
+				// Let the last buffered text finish its reveal before finalizing.
+				await smoother.settle();
 				finishAsst();
 				if (wasHidden) {
 					const current = await fetchConvo(cid);
@@ -419,6 +430,7 @@
 				}
 				if (event === 'sync') {
 					const synced = (d.items as StoredItem[]) ?? [];
+					smoother.reset();
 					items = toItems(synced);
 					const last = items[items.length - 1];
 					if (last?.role === 'assistant') {
@@ -440,7 +452,10 @@
 			localRuns.delete(cid);
 			if (sawDone) {
 				markBusy(cid, false);
-				if (activeId === cid) finishAsst();
+				if (activeId === cid) {
+					await smoother.settle();
+					finishAsst();
+				}
 			}
 			if (activeId === cid) {
 				if (wasHidden) {

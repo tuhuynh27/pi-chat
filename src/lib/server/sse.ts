@@ -41,12 +41,16 @@ const FLUSH_MS = 50;
 
 /**
  * Wrap an SSE send so consecutive `delta`/`thinking` text events are merged
- * into at most one frame per FLUSH_MS. LLMs emit deltas per token (often
+ * into at most ~one frame per FLUSH_MS. LLMs emit deltas per token (often
  * 50-100+/s); forwarding each one costs a frame on the wire and a reactivity
- * tick in the client for no visible benefit, since the client renders at
- * most once per animation frame anyway. Any other event type (tool_start,
- * error, ...) flushes the buffer first, so ordering is preserved. Call
- * flush() when the run ends, before sending `done`.
+ * tick in the client for no visible benefit - the client buffers and reveals
+ * text on its own animation clock anyway (see $lib/smoother).
+ *
+ * The first delta after a quiet gap is forwarded immediately (leading edge)
+ * so time-to-first-token never pays the batching window; only the burst that
+ * follows is buffered. Any other event type (tool_start, error, ...) flushes
+ * the buffer first, so ordering is preserved. Call flush() when the run
+ * ends, before sending `done`.
  */
 export function coalesceDeltas(send: SseSend): { send: SseSend; flush: () => void } {
 	let kind: 'delta' | 'thinking' | null = null;
@@ -67,9 +71,13 @@ export function coalesceDeltas(send: SseSend): { send: SseSend; flush: () => voi
 		send(event, data) {
 			if (event === 'delta' || event === 'thinking') {
 				if (kind && kind !== event) flush();
+				if (!timer) {
+					timer = setTimeout(flush, FLUSH_MS);
+					send(event, data);
+					return;
+				}
 				kind = event;
 				buf += String((data as { text?: unknown })?.text ?? '');
-				if (!timer) timer = setTimeout(flush, FLUSH_MS);
 				return;
 			}
 			flush();
