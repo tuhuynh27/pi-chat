@@ -1,5 +1,5 @@
 import type { RequestHandler } from '@sveltejs/kit';
-import { getSession, runPrompt } from '$lib/server/pi';
+import { getSession, parseImages, runPrompt } from '$lib/server/pi';
 import { applyEvent, getConvo, saveNow, touchTitle } from '$lib/server/store';
 import { createSseWriter } from '$lib/server/sse';
 
@@ -16,7 +16,13 @@ export const POST: RequestHandler = async ({ request }) => {
 					const body = await request.json().catch(() => null);
 					const text = typeof body?.text === 'string' ? body.text.trim() : '';
 					const conversationId = typeof body?.conversationId === 'string' ? body.conversationId : '';
-					if (!text) {
+					const images = parseImages(body?.images);
+					if (!images) {
+						send('error', { message: 'Invalid image attachment.' });
+						close();
+						return;
+					}
+					if (!text && !images.length) {
 						send('error', { message: 'Empty message.' });
 						close();
 						return;
@@ -38,13 +44,13 @@ export const POST: RequestHandler = async ({ request }) => {
 					// Record the user message + title BEFORE the run, so history
 					// is correct even if the client navigates away immediately.
 					applyEvent(convo.id, (c) => {
-						c.items.push({ role: 'user', text });
+						c.items.push({ role: 'user', text, ...(images.length ? { images } : {}) });
 					});
-					touchTitle(convo.id, text);
+					touchTitle(convo.id, text || 'Image');
 
 					// Note: the run keeps going when the SSE client leaves
 					// (background conversations); use POST /api/abort to stop.
-					const ok = await runPrompt(convo.id, pi, text, send);
+					const ok = await runPrompt(convo.id, pi, text, send, images);
 
 					send('done', { ok });
 					close();

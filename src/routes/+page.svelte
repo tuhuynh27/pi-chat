@@ -22,6 +22,7 @@
 		type ConvoInfo,
 		type ConvoSummary,
 		type ExaDetails,
+		type ImageAttachment,
 		type Item,
 		type StoredItem,
 		type ToolItem
@@ -64,6 +65,7 @@
 		curAsst = null;
 	}
 	let lastError = '';
+	let lightboxSrc = $state<string | null>(null);
 	/** Retry callback for the run currently in flight, attached to the error item if it fails. */
 	let currentRetry: (() => void) | null = null;
 	let appEl: HTMLDivElement;
@@ -427,18 +429,18 @@
 		}
 	}
 
-	async function send(text: string) {
-		if (busy || !text.trim() || !activeId) return;
+	async function send(text: string, images: ImageAttachment[] = []) {
+		if (busy || (!text.trim() && images.length === 0) || !activeId) return;
 		const cid = activeId;
 		lastError = '';
 		const insertAt = items.length;
-		items.push({ id: uid(), role: 'user', text });
+		items.push({ id: uid(), role: 'user', text, images: images.length ? images : undefined });
 		// If this attempt fails outright, retry drops the failed bubble(s) and resends cleanly.
 		currentRetry = () => {
 			items = items.slice(0, insertAt);
-			void send(text);
+			void send(text, images);
 		};
-		await runChat(cid, '/api/chat', { text, conversationId: cid });
+		await runChat(cid, '/api/chat', { text, conversationId: cid, images });
 	}
 
 	/** Walk back from `index` to the nearest user item (assistant/error retries target their user turn). */
@@ -451,11 +453,12 @@
 	async function retry(index: number) {
 		if (busy || !activeId) return;
 		const userIdx = userIndexFor(index);
-		const text = userIdx >= 0 ? (items[userIdx] as { text: string }).text : '';
-		if (!text) return;
+		const target = userIdx >= 0 ? (items[userIdx] as { text: string; images?: ImageAttachment[] }) : null;
+		const text = target?.text ?? '';
+		if (!text && !target?.images?.length) return;
 		const cid = activeId;
 		lastError = '';
-		items = [...items.slice(0, userIdx), { id: uid(), role: 'user', text }];
+		items = [...items.slice(0, userIdx), { id: uid(), role: 'user', text, images: target?.images }];
 		// Re-run with the resolved user index, not the original click target, so a
 		// retry-of-a-retry still lands on the same (now-refreshed) turn.
 		currentRetry = () => void retry(userIdx);
@@ -641,6 +644,8 @@
 	});
 </script>
 
+<svelte:window onkeydown={(e) => e.key === 'Escape' && lightboxSrc && (lightboxSrc = null)} />
+
 <div class="app" bind:this={appEl} inert={!appInteractive} aria-hidden={!appInteractive}>
 	<Sidebar
 		open={sidebarOpen}
@@ -688,7 +693,22 @@
 					{#each items as item, index (item.id)}
 						{#if item.role === 'user'}
 							<div class="msg user" transition:fade={{ duration: 140 }}>
-								<div class="bubble">{item.text}</div>
+								{#if item.images?.length}
+									<div class="msg-images">
+										{#each item.images as img, i (i)}
+											<button
+												type="button"
+												class="msg-thumb"
+												onclick={() => (lightboxSrc = `data:${img.mimeType};base64,${img.data}`)}
+											>
+												<img src={`data:${img.mimeType};base64,${img.data}`} alt="Attachment" />
+											</button>
+										{/each}
+									</div>
+								{/if}
+								{#if item.text}
+									<div class="bubble">{item.text}</div>
+								{/if}
 								<div class="copy-row">
 									<CopyMessage text={item.text} />
 									<RetryMessage onRetry={() => retry(index)} disabled={busy} />
@@ -730,7 +750,9 @@
 			</div>
 		</div>
 
-		<Composer bind:text={draft} {busy} onSend={send} onStop={stop} />
+		{#key activeId}
+			<Composer bind:text={draft} {busy} onSend={send} onStop={stop} />
+		{/key}
 	</div>
 </div>
 
@@ -740,4 +762,26 @@
 
 {#if showLoadingScreen}
 	<LoadingScreen />
+{/if}
+
+{#if lightboxSrc}
+	<div
+		class="lightbox"
+		role="dialog"
+		aria-modal="true"
+		aria-label="Image preview"
+		tabindex="-1"
+		transition:fade={{ duration: 120 }}
+		onclick={() => (lightboxSrc = null)}
+		onkeydown={(e) => e.key === 'Enter' && (lightboxSrc = null)}
+	>
+		<button type="button" class="lightbox-close" onclick={() => (lightboxSrc = null)} aria-label="Close">
+			<svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
+				<path d="M1.5 1.5l11 11M12.5 1.5l-11 11" stroke="currentColor" stroke-width="1.4" />
+			</svg>
+		</button>
+		<div class="lightbox-frame" role="presentation" onclick={(e) => e.stopPropagation()}>
+			<img src={lightboxSrc} alt="Attachment preview at full size" />
+		</div>
+	</div>
 {/if}

@@ -22,8 +22,44 @@ import {
 	modelsConfigFromEnv
 } from './default-models';
 import { toolDetail } from '../types';
-import { applyEvent, dataDir, getConvo, sessionDir, THINKING_CAP, type Convo } from './store';
+import {
+	applyEvent,
+	dataDir,
+	getConvo,
+	sessionDir,
+	THINKING_CAP,
+	type Convo,
+	type ImageAttachment
+} from './store';
 import { cleanupOldWorkspaces } from './workspace';
+
+/** Structural match for the SDK's (unexported) ImageContent type. */
+type ImageContent = { type: 'image'; data: string; mimeType: string };
+
+const toImageContent = (images: ImageAttachment[]): ImageContent[] =>
+	images.map((img) => ({ type: 'image', data: img.data, mimeType: img.mimeType }));
+
+export const MAX_IMAGES = 5;
+/** Safety net against abuse; the client already downscales attachments well below this. */
+const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
+const IMAGE_MIME_RE = /^image\/[a-z0-9.+-]+$/i;
+const BASE64_RE = /^[A-Za-z0-9+/]+={0,2}$/;
+
+/** Validate a request body's `images` field. Returns null on any malformed entry. */
+export function parseImages(input: unknown): ImageAttachment[] | null {
+	if (input === undefined) return [];
+	if (!Array.isArray(input) || input.length > MAX_IMAGES) return null;
+	const images: ImageAttachment[] = [];
+	for (const entry of input) {
+		const data = (entry as { data?: unknown })?.data;
+		const mimeType = (entry as { mimeType?: unknown })?.mimeType;
+		if (typeof data !== 'string' || typeof mimeType !== 'string') return null;
+		if (!IMAGE_MIME_RE.test(mimeType) || !BASE64_RE.test(data)) return null;
+		if (data.length * 0.75 > MAX_IMAGE_BYTES) return null;
+		images.push({ data, mimeType });
+	}
+	return images;
+}
 
 /**
  * Per-conversation Pi agent sessions.
@@ -279,6 +315,8 @@ export interface RetryTarget {
 	userIdx: number;
 	/** Stored text of that user turn (fallback resend text if it was never recorded in the session). */
 	text: string;
+	/** Stored image attachments of that user turn, if any (navigateTree only returns text, so these are resent as-is). */
+	images?: ImageAttachment[];
 	/**
 	 * Session entry id of that user message, for AgentSession.navigateTree().
 	 * Null when the original attempt failed before the SDK persisted anything
@@ -310,7 +348,7 @@ export function resolveRetryTarget(pi: PiSession, convo: Convo, index: number): 
 		.getBranch()
 		.filter((e): e is SessionMessageEntry => e.type === 'message' && e.message.role === 'user');
 	const entry = userEntries[ordinal - 1];
-	return { userIdx, text, entryId: entry?.id ?? null };
+	return { userIdx, text, images: items[userIdx].images, entryId: entry?.id ?? null };
 }
 
 /**
@@ -322,7 +360,8 @@ export async function runPrompt(
 	convoId: string,
 	pi: PiSession,
 	text: string,
-	send: (event: string, data: unknown) => void
+	send: (event: string, data: unknown) => void,
+	images?: ImageAttachment[]
 ): Promise<boolean> {
 	pi.busy = true;
 	const unsubscribe = pi.agent.subscribe((e) => {
@@ -331,7 +370,7 @@ export async function runPrompt(
 	});
 	let ok = true;
 	try {
-		await pi.agent.prompt(text);
+		await pi.agent.prompt(text, images?.length ? { images: toImageContent(images) } : undefined);
 	} catch (err) {
 		ok = false;
 		send('error', { message: err instanceof Error ? err.message : String(err) });

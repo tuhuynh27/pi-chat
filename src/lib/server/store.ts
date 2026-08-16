@@ -15,6 +15,12 @@ import { DEFAULT_MODEL, DEFAULT_PROVIDER, DEFAULT_THINKING } from './default-mod
  * both and allow-lists the dir for writes (see sandbox-start.sh).
  */
 
+/** Base64-encoded image attachment (no data: URL prefix). Mirrors the SDK's ImageContent shape. */
+export interface ImageAttachment {
+	data: string;
+	mimeType: string;
+}
+
 export interface StoredItem {
 	role: 'user' | 'assistant' | 'tool' | 'error';
 	/** Tool call id (tool items only) */
@@ -26,6 +32,8 @@ export interface StoredItem {
 	status?: 'running' | 'done' | 'error';
 	output?: string;
 	details?: Record<string, unknown>;
+	/** User turn image attachments (user items only) */
+	images?: ImageAttachment[];
 }
 
 export interface Convo {

@@ -58,10 +58,10 @@ export const POST: RequestHandler = async ({ request }) => {
 					// resent user message BEFORE the run (matches /api/chat).
 					applyEvent(convo.id, (c) => {
 						c.items.length = target.userIdx;
-						c.items.push({ role: 'user', text });
+						c.items.push({ role: 'user', text, ...(target.images?.length ? { images: target.images } : {}) });
 					});
 
-					const ok = await runPrompt(convo.id, pi, text, send);
+					const ok = await runPrompt(convo.id, pi, text, send, target.images);
 
 					send('done', { ok });
 					close();

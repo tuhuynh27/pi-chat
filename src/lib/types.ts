@@ -17,8 +17,17 @@ export interface ExaDetails {
 
 export const EXA_TOOL_NAMES = new Set(['web_search_exa', 'web_fetch_exa']);
 
+/** Max images allowed per user turn (clipboard paste or file attach). */
+export const MAX_IMAGES = 5;
+
+/** Base64-encoded image attachment (no data: URL prefix). */
+export interface ImageAttachment {
+	data: string;
+	mimeType: string;
+}
+
 export type Item =
-	| { id: string; role: 'user'; text: string }
+	| { id: string; role: 'user'; text: string; images?: ImageAttachment[] }
 	| {
 			id: string;
 			role: 'assistant';
@@ -51,6 +60,7 @@ export interface StoredItem {
 	status?: 'running' | 'done' | 'error';
 	output?: string;
 	details?: Record<string, unknown>;
+	images?: ImageAttachment[];
 }
 
 export interface ConvoSummary {
@@ -75,7 +85,7 @@ export function toItems(stored: StoredItem[]): Item[] {
 	return stored.map((i) => {
 		switch (i.role) {
 		case 'user':
-			return { id: uid(), role: 'user', text: i.text ?? '' };
+			return { id: uid(), role: 'user', text: i.text ?? '', images: i.images };
 		case 'assistant':
 			return {
 				id: uid(),

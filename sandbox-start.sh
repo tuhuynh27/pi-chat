@@ -25,4 +25,7 @@ trap 'rm -f "$PROFILE"' EXIT
 
 export PI_WEB_SANDBOX=1
 export PI_WEB_DATA_DIR="$DATA_DIR"
+# adapter-node defaults to a 512K request body cap, too small for image
+# attachments; raise it unless the environment already overrides it.
+export BODY_SIZE_LIMIT="${BODY_SIZE_LIMIT:-20M}"
 exec sandbox-exec -f "$PROFILE" node --env-file-if-exists=.env build
