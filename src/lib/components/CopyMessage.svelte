@@ -35,21 +35,19 @@
 	});
 </script>
 
-<div class="copy-row">
-	<button class="copy-message" type="button" onclick={copy} aria-label="Copy message as Markdown">
-		{#if status === 'copied'}
-			<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
-				<path d="m2 6.3 2.4 2.4L10 3.2" stroke="currentColor" stroke-width="1.4" fill="none" />
-			</svg>
-			Copied
-		{:else}
-			<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
-				<path d="M4 3V1.5h6.5V8H9M1.5 4H8v6.5H1.5z" stroke="currentColor" stroke-width="1.2" fill="none" />
-			</svg>
-			{status === 'error' ? 'Copy failed' : 'Copy'}
-		{/if}
-	</button>
-	<span class="sr-only" aria-live="polite">
-		{status === 'copied' ? 'Message copied as Markdown' : status === 'error' ? 'Unable to copy message' : ''}
-	</span>
-</div>
+<button class="copy-message" type="button" onclick={copy} aria-label="Copy message as Markdown">
+	{#if status === 'copied'}
+		<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
+			<path d="m2 6.3 2.4 2.4L10 3.2" stroke="currentColor" stroke-width="1.4" fill="none" />
+		</svg>
+		Copied
+	{:else}
+		<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
+			<path d="M4 3V1.5h6.5V8H9M1.5 4H8v6.5H1.5z" stroke="currentColor" stroke-width="1.2" fill="none" />
+		</svg>
+		{status === 'error' ? 'Copy failed' : 'Copy'}
+	{/if}
+</button>
+<span class="sr-only" aria-live="polite">
+	{status === 'copied' ? 'Message copied as Markdown' : status === 'error' ? 'Unable to copy message' : ''}
+</span>

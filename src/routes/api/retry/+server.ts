@@ -1,6 +1,6 @@
 import type { RequestHandler } from '@sveltejs/kit';
-import { getSession, runPrompt } from '$lib/server/pi';
-import { applyEvent, getConvo, saveNow, touchTitle } from '$lib/server/store';
+import { getSession, resolveRetryTarget, runPrompt } from '$lib/server/pi';
+import { applyEvent, getConvo, saveNow } from '$lib/server/store';
 import { createSseWriter } from '$lib/server/sse';
 
 export const POST: RequestHandler = async ({ request }) => {
@@ -14,13 +14,9 @@ export const POST: RequestHandler = async ({ request }) => {
 			(async () => {
 				try {
 					const body = await request.json().catch(() => null);
-					const text = typeof body?.text === 'string' ? body.text.trim() : '';
 					const conversationId = typeof body?.conversationId === 'string' ? body.conversationId : '';
-					if (!text) {
-						send('error', { message: 'Empty message.' });
-						close();
-						return;
-					}
+					const index = typeof body?.index === 'number' ? body.index : -1;
+
 					const convo = getConvo(conversationId);
 					if (!convo) {
 						send('error', { message: 'Unknown conversation.' });
@@ -35,27 +31,44 @@ export const POST: RequestHandler = async ({ request }) => {
 						return;
 					}
 
-					// Record the user message + title BEFORE the run, so history
-					// is correct even if the client navigates away immediately.
+					const target = resolveRetryTarget(pi, convo, index);
+					if (!target) {
+						send('error', { message: 'Nothing to retry.' });
+						close();
+						return;
+					}
+
+					// entryId is null when the original attempt failed before the SDK
+					// persisted anything to the session (e.g. no model configured) -
+					// there is nothing to navigate to, so just resend the stored text.
+					let text = target.text;
+					if (target.entryId) {
+						// Move the session's active leaf back to before this turn; the
+						// SDK hands back the original message text to resend.
+						const { editorText, cancelled } = await pi.agent.navigateTree(target.entryId);
+						if (cancelled) {
+							send('error', { message: 'Could not retry this message.' });
+							close();
+							return;
+						}
+						if (editorText) text = editorText;
+					}
+
+					// Drop the retried turn and everything after it, then record the
+					// resent user message BEFORE the run (matches /api/chat).
 					applyEvent(convo.id, (c) => {
+						c.items.length = target.userIdx;
 						c.items.push({ role: 'user', text });
 					});
-					touchTitle(convo.id, text);
 
-					// Note: the run keeps going when the SSE client leaves
-					// (background conversations); use POST /api/abort to stop.
 					const ok = await runPrompt(convo.id, pi, text, send);
 
 					send('done', { ok });
 					close();
 					await saveNow();
 				} catch (err) {
-					// Session/model setup failure (e.g. no API key configured)
 					send('error', {
-						message:
-							err instanceof Error
-								? err.message
-								: 'Failed to start the Pi agent. Set a provider API key and model configuration in the server environment.'
+						message: err instanceof Error ? err.message : 'Failed to retry the message.'
 					});
 					close();
 				}

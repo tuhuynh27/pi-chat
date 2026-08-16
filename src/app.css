@@ -488,11 +488,14 @@ select {
 .copy-row {
 	display: flex;
 	justify-content: flex-end;
+	align-items: center;
+	gap: 2px;
 	min-height: 24px;
 	margin-top: 4px;
 }
 
-.copy-message {
+.copy-message,
+.retry-message {
 	display: inline-flex;
 	align-items: center;
 	gap: 5px;
@@ -505,15 +508,22 @@ select {
 	cursor: pointer;
 }
 
-.copy-message:hover {
+.copy-message:hover,
+.retry-message:hover {
 	background: var(--soft);
 	color: var(--fg);
 }
 
-.copy-message:focus-visible {
+.copy-message:focus-visible,
+.retry-message:focus-visible {
 	outline: 1px solid var(--fg);
 	outline-offset: 1px;
 	color: var(--fg);
+}
+
+.retry-message:disabled {
+	opacity: 0.4;
+	cursor: default;
 }
 
 .sr-only {

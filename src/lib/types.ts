@@ -29,7 +29,7 @@ export type Item =
 			thinkingActive?: boolean;
 		}
 	| { id: string; role: 'tool'; name: string; detail: string; status: ToolStatus; output: string; details?: ExaDetails }
-	| { id: string; role: 'error'; text: string };
+	| { id: string; role: 'error'; text: string; retry?: () => void };
 
 export type AssistantItem = Extract<Item, { role: 'assistant' }>;
 export type ToolItem = Extract<Item, { role: 'tool' }>;

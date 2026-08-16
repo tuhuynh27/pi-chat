@@ -5,6 +5,7 @@
 	import Sidebar from '$lib/components/Sidebar.svelte';
 	import MessageItem from '$lib/components/MessageItem.svelte';
 	import CopyMessage from '$lib/components/CopyMessage.svelte';
+	import RetryMessage from '$lib/components/RetryMessage.svelte';
 	import ToolLine from '$lib/components/ToolLine.svelte';
 	import ExaTool from '$lib/components/ExaTool.svelte';
 	import Composer from '$lib/components/Composer.svelte';
@@ -56,6 +57,8 @@
 		curAsst = null;
 	}
 	let lastError = '';
+	/** Retry callback for the run currently in flight, attached to the error item if it fails. */
+	let currentRetry: (() => void) | null = null;
 	let appEl: HTMLDivElement;
 	let scrollEl: HTMLDivElement;
 	let stick = true;
@@ -68,6 +71,12 @@
 			authState = 'required';
 		}
 		return response;
+	}
+
+	/** Turn a fetch()-level failure into a message worth showing, without a raw stack trace. */
+	function describeFetchError(e: unknown): string {
+		if (e instanceof TypeError) return 'Network error - check your connection and try again.';
+		return e instanceof Error ? e.message : 'Something went wrong.';
 	}
 
 	/* ---------------- scrolling ---------------- */
@@ -92,7 +101,7 @@
 	function fail(message: string) {
 		if (message === lastError) return;
 		lastError = message;
-		items.push({ id: uid(), role: 'error', text: message });
+		items.push({ id: uid(), role: 'error', text: message, retry: currentRetry ?? undefined });
 	}
 
 	/* ---------------- message construction ---------------- */
@@ -278,26 +287,25 @@
 
 	/* ---------------- actions ---------------- */
 
-	async function send(text: string) {
-		if (busy || !text.trim() || !activeId) return;
-		const cid = activeId;
-		lastError = '';
-		items.push({ id: uid(), role: 'user', text });
+	/** Shared SSE loop for /api/chat and /api/retry: both push a user item first, then stream a run. */
+	async function runChat(cid: string, endpoint: string, body: Record<string, unknown>) {
 		localRuns.add(cid);
 		markBusy(cid, true);
 		curAsst = null;
 		scrollBottom(true);
 		let wasHidden = false;
 		try {
-			const res = await apiFetch('/api/chat', {
+			const res = await apiFetch(endpoint, {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ text, conversationId: cid })
+				body: JSON.stringify(body)
 			});
 			const ct = res.headers.get('content-type') ?? '';
 			if (!res.ok || !ct.includes('text/event-stream') || !res.body) {
-				const body = (await res.json().catch(() => null)) as { error?: string } | null;
-				if (activeId === cid) fail(body?.error ?? `Request failed (${res.status})`);
+				const resBody = (await res.json().catch(() => null)) as { error?: string } | null;
+				if (activeId === cid) {
+					fail(resBody?.error ?? `The server returned an error (HTTP ${res.status}). Please try again.`);
+				}
 				return;
 			}
 			for await (const { event, data } of readSse(res)) {
@@ -313,10 +321,11 @@
 				scrollBottom();
 			}
 		} catch (e) {
-			if (activeId === cid) fail(e instanceof Error ? e.message : String(e));
+			if (activeId === cid) fail(describeFetchError(e));
 		} finally {
 			localRuns.delete(cid);
 			markBusy(cid, false);
+			currentRetry = null;
 			if (activeId === cid) {
 				finishAsst();
 				if (wasHidden) {
@@ -328,6 +337,41 @@
 			// Refresh titles/busy flags in the sidebar.
 			void loadConvos();
 		}
+	}
+
+	async function send(text: string) {
+		if (busy || !text.trim() || !activeId) return;
+		const cid = activeId;
+		lastError = '';
+		const insertAt = items.length;
+		items.push({ id: uid(), role: 'user', text });
+		// If this attempt fails outright, retry drops the failed bubble(s) and resends cleanly.
+		currentRetry = () => {
+			items = items.slice(0, insertAt);
+			void send(text);
+		};
+		await runChat(cid, '/api/chat', { text, conversationId: cid });
+	}
+
+	/** Walk back from `index` to the nearest user item (assistant/error retries target their user turn). */
+	function userIndexFor(index: number): number {
+		let i = index;
+		while (i >= 0 && items[i]?.role !== 'user') i--;
+		return i;
+	}
+
+	async function retry(index: number) {
+		if (busy || !activeId) return;
+		const userIdx = userIndexFor(index);
+		const text = userIdx >= 0 ? (items[userIdx] as { text: string }).text : '';
+		if (!text) return;
+		const cid = activeId;
+		lastError = '';
+		items = [...items.slice(0, userIdx), { id: uid(), role: 'user', text }];
+		// Re-run with the resolved user index, not the original click target, so a
+		// retry-of-a-retry still lands on the same (now-refreshed) turn.
+		currentRetry = () => void retry(userIdx);
+		await runChat(cid, '/api/retry', { conversationId: cid, index: userIdx });
 	}
 
 	function stop() {
@@ -546,14 +590,22 @@
 						{#if item.role === 'user'}
 							<div class="msg user" transition:fade={{ duration: 140 }}>
 								<div class="bubble">{item.text}</div>
-								<CopyMessage text={item.text} />
+								<div class="copy-row">
+									<CopyMessage text={item.text} />
+									<RetryMessage onRetry={() => retry(index)} disabled={busy} />
+								</div>
 							</div>
 						{:else if item.role === 'assistant'}
 							{@const copyText = copyTextForAssistant(index)}
 							{#if item.text || item.thinking || item.streaming}
 								<div class="msg assistant" transition:fade={{ duration: 140 }}>
 									<MessageItem item={item} />
-									{#if copyText}<CopyMessage text={copyText} />{/if}
+									{#if copyText}
+										<div class="copy-row">
+											<CopyMessage text={copyText} />
+											<RetryMessage onRetry={() => retry(index)} disabled={busy} />
+										</div>
+									{/if}
 								</div>
 							{/if}
 						{:else if item.role === 'tool'}
@@ -565,7 +617,14 @@
 								{/if}
 							</div>
 						{:else}
-							<div class="msg error" transition:fade={{ duration: 140 }}>{item.text}</div>
+							<div class="msg error" transition:fade={{ duration: 140 }}>
+								{item.text}
+								{#if item.retry}
+									<div class="copy-row">
+										<RetryMessage onRetry={item.retry} disabled={busy} />
+									</div>
+								{/if}
+							</div>
 						{/if}
 					{/each}
 				{/if}

@@ -8,7 +8,8 @@ import {
 import type {
 	AgentSession,
 	AgentSessionEvent,
-	CreateModelRuntimeOptions
+	CreateModelRuntimeOptions,
+	SessionMessageEntry
 } from '@earendil-works/pi-coding-agent';
 import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -52,6 +53,8 @@ export interface PiSession {
 	cwd: string;
 	/** True while a prompt is running */
 	busy: boolean;
+	/** Same instance passed into createAgentSession; kept for tree lookups (retry). */
+	sessionManager: SessionManager;
 }
 
 const sessions = new Map<string, PiSession>();
@@ -204,10 +207,11 @@ export async function getSession(id: string, convo: Convo): Promise<PiSession> {
 	// setThinkingLevel would clamp against the session's fallback model, and
 	// an un-awaited setModel could race the level application.
 	const model = convo.model ? await resolveModelId(convo.model) : null;
+	const sessionManager = sessionManagerFor(id, cwd);
 	const { session } = await createAgentSession({
 		cwd,
 		agentDir: getIsolatedAgentDir(),
-		sessionManager: sessionManagerFor(id, cwd),
+		sessionManager,
 		modelRuntime: await getRuntime(),
 		resourceLoader: await makeResourceLoader(cwd),
 		settingsManager: getSettings(),
@@ -216,7 +220,7 @@ export async function getSession(id: string, convo: Convo): Promise<PiSession> {
 		...sessionToolOptions
 	});
 
-	const pi: PiSession = { agent: session, cwd, busy: false };
+	const pi: PiSession = { agent: session, cwd, busy: false, sessionManager };
 	sessions.set(id, pi);
 	return pi;
 }
@@ -241,6 +245,74 @@ export function isBusy(id: string): boolean {
 
 export function busyIds(): string[] {
 	return [...sessions.entries()].filter(([, s]) => s.busy).map(([id]) => id);
+}
+
+export interface RetryTarget {
+	/** Index in convo.items of the user turn being retried (everything from here on is discarded). */
+	userIdx: number;
+	/** Stored text of that user turn (fallback resend text if it was never recorded in the session). */
+	text: string;
+	/**
+	 * Session entry id of that user message, for AgentSession.navigateTree().
+	 * Null when the original attempt failed before the SDK persisted anything
+	 * (e.g. no model/API key configured) — the session has no matching entry
+	 * to navigate to, so retry just resends `text` directly.
+	 */
+	entryId: string | null;
+}
+
+/**
+ * Resolve a retry click (on a user, assistant, or error item) to the user
+ * turn it belongs to: walk back to the nearest user item, then find that
+ * item's matching session entry by ordinal position among user messages in
+ * the active branch. Conversation items and the session's user-message
+ * entries stay in 1:1 order since this app only ever appends turns linearly.
+ */
+export function resolveRetryTarget(pi: PiSession, convo: Convo, index: number): RetryTarget | null {
+	const items = convo.items;
+	let userIdx = index;
+	while (userIdx >= 0 && items[userIdx]?.role !== 'user') userIdx--;
+	if (userIdx < 0) return null;
+	const text = items[userIdx].text ?? '';
+	if (!text) return null;
+
+	let ordinal = 0;
+	for (let i = 0; i <= userIdx; i++) if (items[i].role === 'user') ordinal++;
+
+	const userEntries = pi.sessionManager
+		.getBranch()
+		.filter((e): e is SessionMessageEntry => e.type === 'message' && e.message.role === 'user');
+	const entry = userEntries[ordinal - 1];
+	return { userIdx, text, entryId: entry?.id ?? null };
+}
+
+/**
+ * Run a prompt against a live session: mirrors agent events into SSE frames
+ * (via `send`) and into the stored history. Shared by /api/chat and
+ * /api/retry. Returns false if the prompt itself threw.
+ */
+export async function runPrompt(
+	convoId: string,
+	pi: PiSession,
+	text: string,
+	send: (event: string, data: unknown) => void
+): Promise<boolean> {
+	pi.busy = true;
+	const unsubscribe = pi.agent.subscribe((e) => {
+		applyToConvo(convoId, e);
+		for (const sse of toSseEvents(e)) send(sse.event, sse.data);
+	});
+	let ok = true;
+	try {
+		await pi.agent.prompt(text);
+	} catch (err) {
+		ok = false;
+		send('error', { message: err instanceof Error ? err.message : String(err) });
+	} finally {
+		unsubscribe();
+		pi.busy = false;
+	}
+	return ok;
 }
 
 /** Abort a conversation (or the first busy one when id is omitted). */
