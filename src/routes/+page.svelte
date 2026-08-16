@@ -126,29 +126,39 @@
 		return curAsst;
 	}
 
-	function copyTextForAssistant(index: number): string {
-		if (items[index]?.role !== 'assistant') return '';
-
-		let end = index + 1;
-		while (end < items.length && items[end].role !== 'user') {
-			if (items[end].role === 'assistant') return '';
-			end += 1;
+	/**
+	 * Copy text per assistant bubble, keyed by index: only the LAST assistant
+	 * item in each user-delimited turn gets a non-empty entry, aggregating the
+	 * text of every assistant item in that turn (earlier ones within the same
+	 * turn - e.g. separated by tool calls - stay ''). Computed in one O(n) pass
+	 * over `items` rather than one scan per bubble, which would be O(n) work
+	 * per bubble and re-run for every bubble on every items.push() (tool
+	 * calls, new turns) - O(n^2) overall as the conversation grows.
+	 */
+	let copyTexts = $derived.by(() => {
+		const texts: string[] = new Array(items.length).fill('');
+		let turnStart = 0;
+		for (let i = 0; i <= items.length; i++) {
+			const atEnd = i === items.length;
+			if (!atEnd && items[i].role !== 'user') continue;
+			// The last turn is still growing while its request is busy. Waiting
+			// until it finishes prevents a temporary copy button between tool calls.
+			if (!(atEnd && busy)) {
+				let lastAsstIdx = -1;
+				for (let j = turnStart; j < i; j++) if (items[j].role === 'assistant') lastAsstIdx = j;
+				if (lastAsstIdx !== -1) {
+					texts[lastAsstIdx] = items
+						.slice(turnStart, i)
+						.filter((candidate): candidate is AssistantItem => candidate.role === 'assistant')
+						.map((candidate) => candidate.text.trim())
+						.filter(Boolean)
+						.join('\n\n');
+				}
+			}
+			turnStart = i + 1;
 		}
-
-		// The last turn is still growing while its request is busy. Waiting until
-		// it finishes prevents a temporary copy button between tool calls.
-		if (end === items.length && busy) return '';
-
-		let start = index;
-		while (start > 0 && items[start - 1].role !== 'user') start -= 1;
-
-		return items
-			.slice(start, end)
-			.filter((candidate): candidate is AssistantItem => candidate.role === 'assistant')
-			.map((candidate) => candidate.text.trim())
-			.filter(Boolean)
-			.join('\n\n');
-	}
+		return texts;
+	});
 
 	function markBusy(id: string, value: boolean) {
 		const has = busyIds.includes(id);
@@ -740,7 +750,7 @@
 								</div>
 							</div>
 						{:else if item.role === 'assistant'}
-							{@const copyText = copyTextForAssistant(index)}
+							{@const copyText = copyTexts[index] ?? ''}
 							{#if item.text || item.thinking || item.streaming}
 								<div class="msg assistant" transition:fade={{ duration: 140 }}>
 									<MessageItem item={item} />

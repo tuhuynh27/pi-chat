@@ -27,10 +27,25 @@
 	});
 
 	// Keep the (capped) thinking body scrolled to the newest line while live.
+	// Reading scrollHeight forces a synchronous layout, so this is rAF-throttled
+	// the same way the main thread scroll is (+page.svelte's scrollBottom) -
+	// thinking deltas can arrive many times per frame, and without throttling
+	// each one forces its own layout pass, visibly stuttering the stream.
 	let ttext = $state<HTMLDivElement | undefined>(undefined);
+	let scrollFrame = 0;
 	$effect(() => {
 		void item.thinking;
-		if (ttext && item.thinkingActive) ttext.scrollTop = ttext.scrollHeight;
+		if (!ttext || !item.thinkingActive || scrollFrame) return;
+		scrollFrame = requestAnimationFrame(() => {
+			scrollFrame = 0;
+			if (ttext) ttext.scrollTop = ttext.scrollHeight;
+		});
+	});
+
+	$effect(() => {
+		return () => {
+			if (scrollFrame) cancelAnimationFrame(scrollFrame);
+		};
 	});
 </script>
 
