@@ -59,7 +59,7 @@
 			<svg width="11" height="11" viewBox="0 0 11 11" aria-hidden="true">
 				<path d="M5.5 1v9M1 5.5h9" stroke="currentColor" stroke-width="1.5" fill="none" />
 			</svg>
-			New
+			<span class="btn-text">New</span>
 		</button>
 		<button class="icon-btn logout" onclick={onLogout} aria-label="Sign out" title="Sign out">
 			<svg width="13" height="13" viewBox="0 0 13 13" aria-hidden="true">
