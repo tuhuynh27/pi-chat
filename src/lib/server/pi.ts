@@ -247,6 +247,33 @@ export function busyIds(): string[] {
 	return [...sessions.entries()].filter(([, s]) => s.busy).map(([id]) => id);
 }
 
+/** Look up a live session without creating one (for read-only attach). */
+export function getLiveSession(id: string): PiSession | null {
+	return sessions.get(id) ?? null;
+}
+
+/* ---------------- run-completion notifier (for /api/attach) ---------------- */
+
+const doneListeners = new Map<string, Set<(ok: boolean) => void>>();
+
+/** Fire once the next time `notifyDone` is called for this conversation. */
+export function onceDone(id: string, cb: (ok: boolean) => void): () => void {
+	let set = doneListeners.get(id);
+	if (!set) {
+		set = new Set();
+		doneListeners.set(id, set);
+	}
+	set.add(cb);
+	return () => set!.delete(cb);
+}
+
+function notifyDone(id: string, ok: boolean): void {
+	const set = doneListeners.get(id);
+	if (!set || set.size === 0) return;
+	doneListeners.delete(id);
+	for (const cb of set) cb(ok);
+}
+
 export interface RetryTarget {
 	/** Index in convo.items of the user turn being retried (everything from here on is discarded). */
 	userIdx: number;
@@ -311,6 +338,7 @@ export async function runPrompt(
 	} finally {
 		unsubscribe();
 		pi.busy = false;
+		notifyDone(convoId, ok);
 	}
 	return ok;
 }

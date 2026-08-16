@@ -22,6 +22,7 @@
 		type ConvoSummary,
 		type ExaDetails,
 		type Item,
+		type StoredItem,
 		type ToolItem
 	} from '$lib/types';
 
@@ -271,6 +272,7 @@
 		const c = await fetchConvo(id);
 		if (!c) return;
 		showConvo(c);
+		if (c.busy && !localRuns.has(c.id)) void attachToRun(c.id);
 		draft = '';
 		sidebarOpen = false;
 		scrollBottom(true);
@@ -360,6 +362,64 @@
 				scrollBottom();
 			}
 			// Refresh titles/busy flags in the sidebar.
+			void loadConvos();
+		}
+	}
+
+	/**
+	 * Resync with a run that's still going server-side after this tab lost its
+	 * original stream (hard refresh, or switching to a busy conversation this
+	 * tab didn't start). Reads /api/attach: a `sync` event with the current
+	 * stored items, then live events until the run finishes.
+	 */
+	async function attachToRun(cid: string) {
+		if (localRuns.has(cid)) return;
+		localRuns.add(cid);
+		let sawDone = false;
+		let wasHidden = false;
+		try {
+			const res = await apiFetch(`/api/attach?conversationId=${encodeURIComponent(cid)}`).catch(() => null);
+			const ct = res?.headers.get('content-type') ?? '';
+			if (!res?.ok || !ct.includes('text/event-stream') || !res.body) return;
+			for await (const { event, data } of readSse(res)) {
+				const d = data as Record<string, unknown>;
+				if (event === 'done') sawDone = true;
+				if (activeId !== cid) {
+					wasHidden = true;
+					continue;
+				}
+				if (event === 'sync') {
+					const synced = (d.items as StoredItem[]) ?? [];
+					items = toItems(synced);
+					const last = items[items.length - 1];
+					if (last?.role === 'assistant') {
+						last.streaming = true;
+						last.thinkingActive = Boolean(last.thinking && !last.text);
+						curAsst = last;
+					} else {
+						curAsst = null;
+					}
+					scrollBottom(true);
+					continue;
+				}
+				handleEvent(event, d);
+				scrollBottom();
+			}
+		} catch {
+			// Best-effort resync; leave whatever snapshot is already shown.
+		} finally {
+			localRuns.delete(cid);
+			if (sawDone) {
+				markBusy(cid, false);
+				if (activeId === cid) finishAsst();
+			}
+			if (activeId === cid) {
+				if (wasHidden) {
+					const current = await fetchConvo(cid);
+					if (current && activeId === cid) showConvo(current);
+				}
+				scrollBottom();
+			}
 			void loadConvos();
 		}
 	}
