@@ -13,7 +13,8 @@
 }
 
 @media (prefers-color-scheme: dark) {
-	:root {
+	/* OS default, unless the user picked "light" explicitly via the toggle */
+	:root:not([data-theme='light']) {
 		--bg: #0d0d0f;
 		--fg: #ededf0;
 		--muted: #9a9aa2;
@@ -25,6 +26,20 @@
 		--error: #ff7367;
 		color-scheme: dark;
 	}
+}
+
+:root[data-theme='dark'] {
+	/* Explicit override, wins regardless of the OS preference */
+	--bg: #0d0d0f;
+	--fg: #ededf0;
+	--muted: #9a9aa2;
+	--faint: #62626a;
+	--line: #26262a;
+	--soft: #17171a;
+	--accent: #ededf0;
+	--accent-fg: #0d0d0f;
+	--error: #ff7367;
+	color-scheme: dark;
 }
 
 * {

@@ -3,8 +3,18 @@
 	<head>
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-		<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
-		<meta name="theme-color" content="#0d0d0f" media="(prefers-color-scheme: dark)" />
+		<meta name="theme-color" content="#ffffff" />
+		<script>
+			// Applies a stored theme override before first paint to avoid a flash
+			// of the wrong theme; absence of a stored value leaves the OS
+			// preference (app.css's prefers-color-scheme block) in charge.
+			(function () {
+				try {
+					var t = localStorage.getItem('pi-web-theme');
+					if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+				} catch (e) {}
+			})();
+		</script>
 		<title>pi chat</title>
 		%sveltekit.head%
 	</head>

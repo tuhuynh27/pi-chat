@@ -12,6 +12,7 @@
 	import LoginGate from '$lib/components/LoginGate.svelte';
 	import LoadingScreen from '$lib/components/LoadingScreen.svelte';
 	import { readSse } from '$lib/sse';
+	import { initTheme, setTheme, type Theme } from '$lib/theme';
 	import {
 		isExaTool,
 		isTool,
@@ -34,6 +35,7 @@
 		"Which stocks are trending after today's Fed announcement?"
 	];
 
+	let theme = $state<Theme>('light');
 	let convos = $state<ConvoSummary[]>([]);
 	let activeId = $state<string | null>(null);
 	let items = $state<Item[]>([]);
@@ -512,6 +514,15 @@
 
 	/* ---------------- init ---------------- */
 
+	function toggleTheme() {
+		theme = theme === 'dark' ? 'light' : 'dark';
+		setTheme(theme);
+	}
+
+	onMount(() => {
+		theme = initTheme();
+	});
+
 	onMount(() => {
 		const viewport = window.visualViewport;
 		if (!viewport) return;
@@ -663,11 +674,13 @@
 			{models}
 			{thinking}
 			{busy}
+			{theme}
 			onModel={changeModel}
 			onThinking={changeThinking}
 			onNew={newChat}
 			onMenu={() => (sidebarOpen = !sidebarOpen)}
 			onLogout={logout}
+			onToggleTheme={toggleTheme}
 		/>
 
 		<div class="main" bind:this={scrollEl} onscroll={onScroll}>

@@ -1,26 +1,31 @@
 <script lang="ts">
 	import Dropdown from '$lib/components/Dropdown.svelte';
+	import type { Theme } from '$lib/theme';
 
 	let {
 		model,
 		models,
 		thinking,
 		busy,
+		theme,
 		onModel,
 		onThinking,
 		onNew,
 		onMenu,
-		onLogout
+		onLogout,
+		onToggleTheme
 	}: {
 		model: string;
 		models: { id: string; name: string; provider: string }[];
 		thinking: string;
 		busy: boolean;
+		theme: Theme;
 		onModel: (id: string) => void;
 		onThinking: (level: string) => void;
 		onNew: () => void;
 		onMenu: () => void;
 		onLogout: () => void;
+		onToggleTheme: () => void;
 	} = $props();
 
 	const levels = ['off', 'minimal', 'low', 'medium', 'high'];
@@ -60,6 +65,35 @@
 				<path d="M5.5 1v9M1 5.5h9" stroke="currentColor" stroke-width="1.5" fill="none" />
 			</svg>
 			<span class="btn-text">New</span>
+		</button>
+		<button
+			class="icon-btn"
+			onclick={onToggleTheme}
+			aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+			title={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+		>
+			{#if theme === 'dark'}
+				<svg width="13" height="13" viewBox="0 0 24 24" aria-hidden="true">
+					<circle cx="12" cy="12" r="5" stroke="currentColor" stroke-width="2" fill="none" />
+					<path
+						d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"
+						stroke="currentColor"
+						stroke-width="2"
+						stroke-linecap="round"
+					/>
+				</svg>
+			{:else}
+				<svg width="13" height="13" viewBox="0 0 24 24" aria-hidden="true">
+					<path
+						d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"
+						stroke="currentColor"
+						stroke-width="2"
+						stroke-linecap="round"
+						stroke-linejoin="round"
+						fill="none"
+					/>
+				</svg>
+			{/if}
 		</button>
 		<button class="icon-btn logout" onclick={onLogout} aria-label="Sign out" title="Sign out">
 			<svg width="13" height="13" viewBox="0 0 13 13" aria-hidden="true">
