@@ -2,6 +2,7 @@ import { mkdirSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { rename, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { DEFAULT_MODEL, DEFAULT_PROVIDER, DEFAULT_THINKING } from './default-models';
 
 /**
  * Conversation history store.
@@ -168,9 +169,11 @@ export function createConvo(opts: { id?: string; title?: string } = {}): Convo {
 	const convo: Convo = {
 		id,
 		title: opts.title?.trim() || 'New chat',
-		// New conversations start with the latest model + thinking choices.
-		model: lastModel,
-		thinking: lastThinking ?? 'off',
+		// New conversations start with the latest model + thinking choices,
+		// falling back to the app's configured defaults before any choice
+		// has ever been made (see default-models.ts).
+		model: lastModel ?? `${DEFAULT_PROVIDER}/${DEFAULT_MODEL}`,
+		thinking: lastThinking ?? DEFAULT_THINKING,
 		createdAt: now,
 		updatedAt: now,
 		items: []

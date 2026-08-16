@@ -16,7 +16,7 @@ const THINKING_LEVELS: DefaultThinkingLevel[] = [
 ];
 
 function defaultThinkingFromEnv(): DefaultThinkingLevel {
-	const value = process.env.PI_WEB_DEFAULT_THINKING?.trim() || 'low';
+	const value = process.env.PI_WEB_DEFAULT_THINKING?.trim() || 'high';
 	if ((THINKING_LEVELS as string[]).includes(value)) return value as DefaultThinkingLevel;
 	throw new Error(`PI_WEB_DEFAULT_THINKING has unsupported value "${value}".`);
 }

@@ -266,7 +266,7 @@
 		if (!c) return;
 		activeId = c.id;
 		items = [];
-		model = c.model ?? model;
+		model = c.model ?? models[0]?.id ?? '';
 		thinking = c.thinking;
 		curAsst = null;
 		markBusy(c.id, false);
