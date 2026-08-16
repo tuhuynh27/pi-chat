@@ -286,6 +286,11 @@
 	}
 
 	async function newChat() {
+		// Already on an untouched empty chat - avoid piling up empty history entries.
+		if (activeId !== null && items.length === 0 && !draft.trim()) {
+			sidebarOpen = false;
+			return;
+		}
 		await cleanupIfEmpty();
 		const res = await apiFetch('/api/conversations', {
 			method: 'POST',
@@ -314,8 +319,15 @@
 		await apiFetch(`/api/conversations/${encodeURIComponent(id)}`, { method: 'DELETE' }).catch(() => {});
 		convos = convos.filter((c) => c.id !== id);
 		if (wasActive) {
-			if (convos.length > 0) await select(convos[0].id);
-			else await newChat();
+			if (convos.length > 0) {
+				await select(convos[0].id);
+			} else {
+				// Deleted convo's id is gone server-side; clear it so newChat()'s
+				// already-empty guard doesn't mistake it for a live empty chat.
+				activeId = null;
+				items = [];
+				await newChat();
+			}
 		}
 	}
 
