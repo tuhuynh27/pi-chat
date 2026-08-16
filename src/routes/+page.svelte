@@ -10,6 +10,7 @@
 	import ExaTool from '$lib/components/ExaTool.svelte';
 	import Composer from '$lib/components/Composer.svelte';
 	import LoginGate from '$lib/components/LoginGate.svelte';
+	import LoadingScreen from '$lib/components/LoadingScreen.svelte';
 	import { readSse } from '$lib/sse';
 	import {
 		isExaTool,
@@ -48,6 +49,8 @@
 	let authState = $state<'checking' | 'required' | 'authenticated'>('checking');
 	let authConfigured = $state<boolean | null>(null);
 	let busy = $derived(activeId !== null && busyIds.includes(activeId));
+	let appInteractive = $derived(authState === 'authenticated' && ready);
+	let showLoadingScreen = $derived(authState === 'checking' || (authState === 'authenticated' && !ready));
 
 	let curAsst: AssistantItem | null = null;
 	const localRuns = new Set<string>();
@@ -629,7 +632,7 @@
 			configured?: boolean;
 			authenticated?: boolean;
 		} | null;
-		authConfigured = Boolean(status?.configured);
+		authConfigured = response ? Boolean(status?.configured) : null;
 		if (response?.ok && status?.authenticated) {
 			await authenticated();
 		} else {
@@ -638,7 +641,7 @@
 	});
 </script>
 
-<div class="app" bind:this={appEl} inert={authState !== 'authenticated'} aria-hidden={authState !== 'authenticated'}>
+<div class="app" bind:this={appEl} inert={!appInteractive} aria-hidden={!appInteractive}>
 	<Sidebar
 		open={sidebarOpen}
 		conversations={convos}
@@ -731,10 +734,10 @@
 	</div>
 </div>
 
-{#if authState !== 'authenticated'}
-	<LoginGate
-		checking={authState === 'checking'}
-		configured={authConfigured}
-		onAuthenticated={authenticated}
-	/>
+{#if authState === 'required'}
+	<LoginGate configured={authConfigured} onAuthenticated={authenticated} />
+{/if}
+
+{#if showLoadingScreen}
+	<LoadingScreen />
 {/if}

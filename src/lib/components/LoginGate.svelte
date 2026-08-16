@@ -2,11 +2,9 @@
 	import { dev } from '$app/environment';
 
 	let {
-		checking,
 		configured,
 		onAuthenticated
 	}: {
-		checking: boolean;
 		configured: boolean | null;
 		onAuthenticated: () => void | Promise<void>;
 	} = $props();
@@ -18,11 +16,11 @@
 	let usernameInput = $state<HTMLInputElement>();
 
 	$effect(() => {
-		if (!checking && configured) usernameInput?.focus();
+		if (configured) usernameInput?.focus();
 	});
 
 	async function login() {
-		if (checking || !configured || submitting) return;
+		if (!configured || submitting) return;
 		error = '';
 		submitting = true;
 
@@ -56,12 +54,7 @@
 			<p>Your conversations and coding agent are protected behind this access gate.</p>
 		</div>
 
-		{#if checking}
-			<div class="auth-check" role="status">
-				<span></span>
-				Checking access
-			</div>
-		{:else if configured === null}
+		{#if configured === null}
 			<div class="auth-setup" role="alert">
 				<strong>Server unavailable</strong>
 				<span>Check that the Pi web server is running, then reload this page.</span>
@@ -110,7 +103,7 @@
 		{/if}
 
 		<div class="auth-foot">
-			<span class="auth-status" class:error={!checking && configured !== true} aria-hidden="true"></span>
+			<span class="auth-status" class:error={configured !== true} aria-hidden="true"></span>
 			Secure session · expires in 24 hours
 		</div>
 	</div>
@@ -263,29 +256,12 @@
 		line-height: 1.45;
 	}
 
-	.auth-check,
 	.auth-setup {
 		margin: 24px 28px 28px;
 		padding: 13px 14px;
 		border: 1px solid var(--line);
 		color: var(--muted);
 		font-size: 12.5px;
-	}
-
-	.auth-check {
-		display: flex;
-		align-items: center;
-		gap: 9px;
-	}
-
-	.auth-check > span {
-		width: 7px;
-		height: 7px;
-		background: var(--fg);
-		animation: auth-pulse 1s ease-in-out infinite;
-	}
-
-	.auth-setup {
 		display: flex;
 		flex-direction: column;
 		gap: 4px;
@@ -327,10 +303,6 @@
 		}
 	}
 
-	@keyframes auth-pulse {
-		50% { opacity: 0.3; }
-	}
-
 	@media (max-width: 480px) {
 		.auth-backdrop {
 			align-items: end;
@@ -354,7 +326,6 @@
 			padding: 21px 22px 24px;
 		}
 
-		.auth-check,
 		.auth-setup {
 			margin: 21px 22px 24px;
 		}
@@ -371,8 +342,7 @@
 	}
 
 	@media (prefers-reduced-motion: reduce) {
-		.auth-panel,
-		.auth-check > span {
+		.auth-panel {
 			animation: none;
 		}
 	}
