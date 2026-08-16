@@ -2,14 +2,15 @@
 	let {
 		busy,
 		onSend,
-		onStop
+		onStop,
+		text = $bindable('')
 	}: {
 		busy: boolean;
 		onSend: (text: string) => void;
 		onStop: () => void;
+		text?: string;
 	} = $props();
 
-	let text = $state('');
 	let el: HTMLTextAreaElement;
 
 	function autoresize() {

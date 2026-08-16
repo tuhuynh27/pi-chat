@@ -34,6 +34,9 @@
 	let convos = $state<ConvoSummary[]>([]);
 	let activeId = $state<string | null>(null);
 	let items = $state<Item[]>([]);
+	let draft = $state('');
+	/** Id of a just-created conversation with no messages yet; swept away on nav/unload unless the user typed a draft. */
+	let freshEmptyId = $state<string | null>(null);
 	let busyIds = $state<string[]>([]);
 	let models = $state<{ id: string; name: string; provider: string }[]>([]);
 	let model = $state('');
@@ -243,19 +246,38 @@
 		lastError = '';
 	}
 
+	/**
+	 * A conversation is created on the server as soon as "New chat" is clicked (so
+	 * a conversationId exists for model/thinking selection before the first send).
+	 * If the user then navigates away having typed nothing, that empty record
+	 * would otherwise sit in the sidebar forever - sweep it away here instead.
+	 * A conversation with an unsent draft is left recorded; only truly untouched
+	 * ones are removed.
+	 */
+	async function cleanupIfEmpty() {
+		const id = freshEmptyId;
+		if (!id || activeId !== id || items.length > 0 || draft.trim()) return;
+		freshEmptyId = null;
+		convos = convos.filter((c) => c.id !== id);
+		await apiFetch(`/api/conversations/${encodeURIComponent(id)}`, { method: 'DELETE' }).catch(() => {});
+	}
+
 	async function select(id: string) {
 		if (id === activeId) {
 			sidebarOpen = false;
 			return;
 		}
+		await cleanupIfEmpty();
 		const c = await fetchConvo(id);
 		if (!c) return;
 		showConvo(c);
+		draft = '';
 		sidebarOpen = false;
 		scrollBottom(true);
 	}
 
 	async function newChat() {
+		await cleanupIfEmpty();
 		const res = await apiFetch('/api/conversations', {
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
@@ -266,16 +288,19 @@
 		if (!c) return;
 		activeId = c.id;
 		items = [];
+		draft = '';
 		model = c.model ?? models[0]?.id ?? '';
 		thinking = c.thinking;
 		curAsst = null;
 		markBusy(c.id, false);
 		lastError = '';
 		sidebarOpen = false;
+		freshEmptyId = c.id;
 		await loadConvos();
 	}
 
 	async function del(id: string) {
+		if (id === freshEmptyId) freshEmptyId = null;
 		const wasActive = id === activeId;
 		await apiFetch(`/api/conversations/${encodeURIComponent(id)}`, { method: 'DELETE' }).catch(() => {});
 		convos = convos.filter((c) => c.id !== id);
@@ -527,6 +552,17 @@
 		authState = 'required';
 	}
 
+	onMount(() => {
+		const sweepEmptyOnUnload = () => {
+			if (!freshEmptyId || activeId !== freshEmptyId || items.length > 0 || draft.trim()) return;
+			fetch(`/api/conversations/${encodeURIComponent(freshEmptyId)}`, { method: 'DELETE', keepalive: true }).catch(
+				() => {}
+			);
+		};
+		window.addEventListener('pagehide', sweepEmptyOnUnload);
+		return () => window.removeEventListener('pagehide', sweepEmptyOnUnload);
+	});
+
 	onMount(async () => {
 		const response = await fetch('/api/auth/status').catch(() => null);
 		const status = (await response?.json().catch(() => null)) as {
@@ -631,7 +667,7 @@
 			</div>
 		</div>
 
-		<Composer {busy} onSend={send} onStop={stop} />
+		<Composer bind:text={draft} {busy} onSend={send} onStop={stop} />
 	</div>
 </div>
 
