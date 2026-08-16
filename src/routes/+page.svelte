@@ -26,9 +26,9 @@
 	} from '$lib/types';
 
 	const SUGGESTIONS = [
-		'Build a tiny browser game with one surprising mechanic',
-		'Research what changed in Svelte this month and create a working demo',
-		'Create a CLI that turns messy notes into a clean project plan'
+		"What's driving the S&P 500 today, and which sectors are leading?",
+		"Summarize Nvidia's latest earnings call and how the market reacted",
+		"Which stocks are trending after today's Fed announcement?"
 	];
 
 	let convos = $state<ConvoSummary[]>([]);
@@ -570,9 +570,9 @@
 			<div class="thread">
 				{#if ready && items.length === 0}
 					<div class="empty">
-						<div class="big">What should we make?</div>
+						<div class="big">What's moving the market?</div>
 						<div class="sub">
-							Start with a half-formed idea. Pi can research the edges, build it in an isolated workspace, and run the result.
+							Ask about a ticker, sector, or headline. Pi can pull the latest data and news, then break down what actually matters.
 						</div>
 						<div class="sugs">
 							{#each SUGGESTIONS as s (s)}
