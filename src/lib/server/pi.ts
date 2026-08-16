@@ -22,6 +22,7 @@ import {
 	modelsConfigFromEnv
 } from './default-models';
 import { toolDetail } from '../types';
+import { coalesceDeltas } from './sse';
 import {
 	applyEvent,
 	dataDir,
@@ -364,18 +365,20 @@ export async function runPrompt(
 	images?: ImageAttachment[]
 ): Promise<boolean> {
 	pi.busy = true;
+	const out = coalesceDeltas(send);
 	const unsubscribe = pi.agent.subscribe((e) => {
 		applyToConvo(convoId, e);
-		for (const sse of toSseEvents(e)) send(sse.event, sse.data);
+		for (const sse of toSseEvents(e)) out.send(sse.event, sse.data);
 	});
 	let ok = true;
 	try {
 		await pi.agent.prompt(text, images?.length ? { images: toImageContent(images) } : undefined);
 	} catch (err) {
 		ok = false;
-		send('error', { message: err instanceof Error ? err.message : String(err) });
+		out.send('error', { message: err instanceof Error ? err.message : String(err) });
 	} finally {
 		unsubscribe();
+		out.flush();
 		pi.busy = false;
 		notifyDone(convoId, ok);
 	}

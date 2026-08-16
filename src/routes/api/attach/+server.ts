@@ -1,7 +1,7 @@
 import type { RequestHandler } from '@sveltejs/kit';
 import { getLiveSession, onceDone, toSseEvents } from '$lib/server/pi';
 import { getConvo } from '$lib/server/store';
-import { createSseWriter } from '$lib/server/sse';
+import { coalesceDeltas, createSseWriter } from '$lib/server/sse';
 
 /**
  * Read-only companion to /api/chat and /api/retry: lets a reconnecting
@@ -43,18 +43,17 @@ export const GET: RequestHandler = async ({ url }) => {
 				return;
 			}
 
+			const live = coalesceDeltas(send);
 			unsubscribeAgent = pi.agent.subscribe((e) => {
-				for (const sse of toSseEvents(e)) send(sse.event, sse.data);
+				for (const sse of toSseEvents(e)) live.send(sse.event, sse.data);
 			});
 			unsubscribeDone = onceDone(conversationId, (ok) => {
 				unsubscribeAgent?.();
 				unsubscribeAgent = null;
+				live.flush();
 				send('done', { ok });
 				close();
 			});
-		},
-		pull() {
-			writer?.drain();
 		},
 		cancel() {
 			writer?.cancel();

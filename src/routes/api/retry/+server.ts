@@ -74,9 +74,6 @@ export const POST: RequestHandler = async ({ request }) => {
 				}
 			})();
 		},
-		pull() {
-			writer?.drain();
-		},
 		cancel() {
 			writer?.cancel();
 		}
