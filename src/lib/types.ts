@@ -80,8 +80,13 @@ export interface ConvoInfo extends ConvoSummary {
 	sandboxed?: boolean;
 }
 
-/** Map stored items to renderable Items (client-side ids for non-tool rows). */
-export function toItems(stored: StoredItem[]): Item[] {
+/**
+ * Map stored items to renderable Items (client-side ids for non-tool rows).
+ * `busy` keeps a stored `running` tool status visible (reattaching to a live
+ * run mid-tool-call); on an idle conversation a leftover `running` (e.g. the
+ * server died mid-run) is shown as done instead of spinning forever.
+ */
+export function toItems(stored: StoredItem[], busy = false): Item[] {
 	return stored.map((i) => {
 		switch (i.role) {
 		case 'user':
@@ -101,7 +106,7 @@ export function toItems(stored: StoredItem[]): Item[] {
 				role: 'tool',
 				name: i.name ?? '',
 				detail: i.detail ?? '',
-				status: i.status === 'error' ? 'error' : 'done',
+				status: i.status === 'running' ? (busy ? 'running' : 'done') : (i.status ?? 'done'),
 				output: i.output ?? '',
 				details: details && (details.kind === 'search' || details.kind === 'fetch') ? details : undefined
 			};

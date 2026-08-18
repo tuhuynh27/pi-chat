@@ -1,5 +1,5 @@
 import type { RequestHandler } from '@sveltejs/kit';
-import { getSession, parseImages, runPrompt } from '$lib/server/pi';
+import { claimRun, getSession, parseImages, releaseRun, runPrompt } from '$lib/server/pi';
 import { applyEvent, getConvo, saveNow, touchTitle } from '$lib/server/store';
 import { createSseWriter } from '$lib/server/sse';
 
@@ -35,26 +35,32 @@ export const POST: RequestHandler = async ({ request }) => {
 					}
 
 					const pi = await getSession(convo.id, convo);
-					if (pi.busy) {
+					if (!claimRun(pi)) {
 						send('error', { message: 'This conversation is still working. Stop the run first.' });
 						close();
 						return;
 					}
+					let started = false;
+					try {
+						// Record the user message + title BEFORE the run, so history
+						// is correct even if the client navigates away immediately.
+						applyEvent(convo.id, (c) => {
+							c.items.push({ role: 'user', text, ...(images.length ? { images } : {}) });
+						});
+						touchTitle(convo.id, text || 'Image');
 
-					// Record the user message + title BEFORE the run, so history
-					// is correct even if the client navigates away immediately.
-					applyEvent(convo.id, (c) => {
-						c.items.push({ role: 'user', text, ...(images.length ? { images } : {}) });
-					});
-					touchTitle(convo.id, text || 'Image');
+						// Note: the run keeps going when the SSE client leaves
+						// (background conversations); use POST /api/abort to stop.
+						started = true;
+						const ok = await runPrompt(convo.id, pi, text, send, images);
 
-					// Note: the run keeps going when the SSE client leaves
-					// (background conversations); use POST /api/abort to stop.
-					const ok = await runPrompt(convo.id, pi, text, send, images);
-
-					send('done', { ok });
-					close();
-					await saveNow();
+						send('done', { ok });
+						close();
+						await saveNow();
+					} finally {
+						// runPrompt releases the claim itself; cover the paths before it.
+						if (!started) releaseRun(pi);
+					}
 				} catch (err) {
 					// Session/model setup failure (e.g. no API key configured)
 					send('error', {

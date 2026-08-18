@@ -92,7 +92,27 @@ export interface PiSession {
 	busy: boolean;
 	/** Same instance passed into createAgentSession; kept for tree lookups (retry). */
 	sessionManager: SessionManager;
+	/** Last time this session was fetched or finished a run (idle eviction). */
+	lastUsed: number;
 }
+
+/**
+ * Abort a run when the provider stream stalls: no progress event for this
+ * long (deltas, tool activity, completed messages — NOT errors or the SDK's
+ * auto-retry bookkeeping, so a stall→retry→stall cycle is bounded by this
+ * total, not per attempt). The check pauses while a tool executes. 0 disables.
+ *
+ * Without this, a provider that accepts the request and then goes silent
+ * holds `busy` for up to ~20 minutes (undici's 300s idle timeout × the SDK's
+ * auto-retries), leaving the conversation unusable the whole time.
+ */
+function stallTimeoutFromEnv(): number {
+	const raw = Number(process.env.PI_WEB_STALL_TIMEOUT_MS);
+	if (!Number.isFinite(raw)) return 180_000;
+	if (raw === 0) return 0;
+	return Math.max(raw, 30_000);
+}
+const STALL_TIMEOUT_MS = stallTimeoutFromEnv();
 
 const sessions = new Map<string, PiSession>();
 let runtime: ModelRuntime | null = null;
@@ -236,7 +256,10 @@ function sessionManagerFor(convoId: string, cwd: string): SessionManager {
 /** Get (or lazily create) the live session for a conversation. */
 export async function getSession(id: string, convo: Convo): Promise<PiSession> {
 	const existing = sessions.get(id);
-	if (existing) return existing;
+	if (existing) {
+		existing.lastUsed = Date.now();
+		return existing;
+	}
 
 	const cwd = workspaceFor(id);
 	// Pass the conversation's model + thinking level INTO createAgentSession:
@@ -257,10 +280,32 @@ export async function getSession(id: string, convo: Convo): Promise<PiSession> {
 		...sessionToolOptions
 	});
 
-	const pi: PiSession = { agent: session, cwd, busy: false, sessionManager };
+	const pi: PiSession = { agent: session, cwd, busy: false, sessionManager, lastUsed: Date.now() };
 	sessions.set(id, pi);
 	return pi;
 }
+
+/**
+ * Evict sessions idle for over an hour: each AgentSession holds its full
+ * message history in RAM and the map never shrinks otherwise. The session
+ * file and workspace stay on disk, so the next message resumes seamlessly.
+ */
+const SESSION_IDLE_MS = 60 * 60 * 1000;
+setInterval(
+	() => {
+		const cutoff = Date.now() - SESSION_IDLE_MS;
+		for (const [id, s] of sessions) {
+			if (s.busy || s.lastUsed > cutoff) continue;
+			sessions.delete(id);
+			try {
+				s.agent.dispose();
+			} catch {
+				/* best-effort */
+			}
+		}
+	},
+	10 * 60 * 1000
+).unref();
 
 /** Dispose a live session and its workspace (conversation deleted). */
 export function disposeSession(id: string): void {
@@ -278,6 +323,23 @@ export function disposeSession(id: string): void {
 
 export function isBusy(id: string): boolean {
 	return sessions.get(id)?.busy ?? false;
+}
+
+/**
+ * Atomically claim a session for a run. Routes must claim BEFORE any await
+ * between the busy check and runPrompt() (retry awaits navigateTree there);
+ * two concurrent requests could otherwise both pass the check and interleave.
+ * runPrompt()'s finally releases the claim; a caller that claims but bails
+ * before runPrompt must call releaseRun().
+ */
+export function claimRun(pi: PiSession): boolean {
+	if (pi.busy) return false;
+	pi.busy = true;
+	return true;
+}
+
+export function releaseRun(pi: PiSession): void {
+	pi.busy = false;
 }
 
 export function busyIds(): string[] {
@@ -353,6 +415,31 @@ export function resolveRetryTarget(pi: PiSession, convo: Convo, index: number): 
 }
 
 /**
+ * True for events that show the run is actually moving: streamed content,
+ * tool activity, or a message that completed cleanly. Errors, aborts, and the
+ * SDK's auto-retry bookkeeping deliberately do NOT count, so the stall
+ * watchdog bounds a stall→retry→stall cycle as one continuous stall.
+ * Compaction/summarization markers count — those runs stream no deltas.
+ */
+function isProgressEvent(e: AgentSessionEvent): boolean {
+	switch (e.type) {
+		case 'message_update':
+		case 'tool_execution_start':
+		case 'tool_execution_end':
+		case 'compaction_end':
+		case 'summarization_retry_attempt_start':
+		case 'summarization_retry_finished':
+			return true;
+		case 'message_end': {
+			const msg = e.message as { stopReason?: string };
+			return msg.stopReason !== 'error' && msg.stopReason !== 'aborted';
+		}
+		default:
+			return false;
+	}
+}
+
+/**
  * Run a prompt against a live session: mirrors agent events into SSE frames
  * (via `send`) and into the stored history. Shared by /api/chat and
  * /api/retry. Returns false if the prompt itself threw.
@@ -366,10 +453,41 @@ export async function runPrompt(
 ): Promise<boolean> {
 	pi.busy = true;
 	const out = coalesceDeltas(send);
+	let lastProgress = Date.now();
+	let runningTools = 0;
+	let stalled = false;
 	const unsubscribe = pi.agent.subscribe((e) => {
+		if (e.type === 'tool_execution_start') runningTools++;
+		else if (e.type === 'tool_execution_end') runningTools = Math.max(0, runningTools - 1);
+		if (isProgressEvent(e)) lastProgress = Date.now();
+		// After a watchdog abort our stall error already explains the outcome;
+		// drop the SDK's generic "Request was aborted" message_end.
+		if (stalled && e.type === 'message_end') return;
 		applyToConvo(convoId, e);
 		for (const sse of toSseEvents(e)) out.send(sse.event, sse.data);
 	});
+	// Stall watchdog: the provider stack has no reliable mid-stream idle
+	// timeout on the SDK path (undici's 300s default fires eventually, but the
+	// SDK auto-retries the "terminated" error, so a dead provider can hold the
+	// conversation for ~20 minutes). Abort with a clear error instead.
+	const watchdog =
+		STALL_TIMEOUT_MS > 0
+			? setInterval(() => {
+					if (runningTools > 0) {
+						// Tools run without emitting events; don't count that as a stall.
+						lastProgress = Date.now();
+						return;
+					}
+					if (Date.now() - lastProgress < STALL_TIMEOUT_MS) return;
+					stalled = true;
+					const message = `No response from the model provider for ${Math.round(STALL_TIMEOUT_MS / 1000)}s - run aborted. Try again, or switch models.`;
+					applyEvent(convoId, (c) => {
+						c.items.push({ role: 'error', text: message });
+					});
+					out.send('message_error', { message });
+					void pi.agent.abort();
+				}, 5_000)
+			: null;
 	let ok = true;
 	try {
 		await pi.agent.prompt(text, images?.length ? { images: toImageContent(images) } : undefined);
@@ -377,9 +495,11 @@ export async function runPrompt(
 		ok = false;
 		out.send('error', { message: err instanceof Error ? err.message : String(err) });
 	} finally {
+		if (watchdog) clearInterval(watchdog);
 		unsubscribe();
 		out.flush();
 		pi.busy = false;
+		pi.lastUsed = Date.now();
 		notifyDone(convoId, ok);
 	}
 	return ok;
@@ -450,6 +570,7 @@ export type SseEvent =
 	| { event: 'tool_start'; data: { id: string; name: string; args: unknown } }
 	| { event: 'tool_end'; data: { id: string; name: string; isError: boolean; output: string; details?: Record<string, unknown> | null } }
 	| { event: 'message_error'; data: { message: string } }
+	| { event: 'retry'; data: { attempt: number; maxAttempts: number; delayMs: number } }
 	| { event: 'done'; data: { ok: boolean } }
 	| { event: 'error'; data: { message: string } };
 
@@ -513,6 +634,15 @@ export function toSseEvents(e: AgentSessionEvent): SseEvent[] {
 			}
 			return [];
 		}
+		case 'auto_retry_start':
+			// The SDK is retrying a transient provider error; the message_error
+			// just forwarded is superseded (the client drops its error bubble).
+			return [
+				{
+					event: 'retry',
+					data: { attempt: e.attempt, maxAttempts: e.maxAttempts, delayMs: e.delayMs }
+				}
+			];
 		default:
 			return [];
 	}
@@ -546,7 +676,8 @@ export function applyToConvo(id: string, e: AgentSessionEvent): void {
 		e.type !== 'message_update' &&
 		e.type !== 'tool_execution_start' &&
 		e.type !== 'tool_execution_end' &&
-		e.type !== 'message_end'
+		e.type !== 'message_end' &&
+		e.type !== 'auto_retry_start'
 	) {
 		return;
 	}
@@ -597,6 +728,13 @@ export function applyToConvo(id: string, e: AgentSessionEvent): void {
 					) {
 						c.items.push({ role: 'error', text: msg.errorMessage });
 					}
+					break;
+				}
+				case 'auto_retry_start': {
+					// Retrying: the trailing error item from the failed attempt is
+					// superseded (the final failure, if any, will push a fresh one).
+					const last = c.items[c.items.length - 1];
+					if (last?.role === 'error') c.items.pop();
 					break;
 				}
 				default:

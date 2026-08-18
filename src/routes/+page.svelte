@@ -226,6 +226,15 @@
 				finishAsst();
 				fail(String(d.message ?? 'Something went wrong.'));
 				break;
+			case 'retry': {
+				// The server is auto-retrying a transient provider error; the error
+				// bubble just shown is superseded. Reset the dedup so an identical
+				// final failure still gets displayed.
+				const last = items[items.length - 1];
+				if (last?.role === 'error') items.pop();
+				lastError = '';
+				break;
+			}
 			// 'done' is handled by the stream loops' finally blocks: they let the
 			// smoother drain naturally (settle) instead of dumping the tail at once.
 		}
@@ -256,10 +265,10 @@
 		// Pending reveal (if any) targets items being replaced; drop it.
 		smoother.reset();
 		activeId = c.id;
-		items = toItems(c.items);
+		const convoBusy = c.busy || localRuns.has(c.id);
+		items = toItems(c.items, convoBusy);
 		model = c.model ?? models[0]?.id ?? '';
 		thinking = c.thinking;
-		const convoBusy = c.busy || localRuns.has(c.id);
 		markBusy(c.id, convoBusy);
 		const last = items[items.length - 1];
 		if (convoBusy && last?.role === 'assistant') {
@@ -359,6 +368,12 @@
 		curAsst = null;
 		scrollBottom(true);
 		let wasHidden = false;
+		// The server always ends a stream with `done` (run finished) or `error`
+		// (request rejected). A stream that started but ended with neither was
+		// dropped mid-run (network blip, proxy timeout) while the run continues
+		// server-side - reattach instead of pretending it finished.
+		let gotStream = false;
+		let sawEnd = false;
 		try {
 			const res = await apiFetch(endpoint, {
 				method: 'POST',
@@ -373,7 +388,9 @@
 				}
 				return;
 			}
+			gotStream = true;
 			for await (const { event, data } of readSse(res)) {
+				if (event === 'done' || event === 'error') sawEnd = true;
 				// The run continues server-side when the user switches
 				// conversations; the store stays current and is re-fetched on
 				// return, so skip rendering into a different conversation.
@@ -386,21 +403,26 @@
 				scrollBottom();
 			}
 		} catch (e) {
-			if (activeId === cid) fail(describeFetchError(e));
+			if (!gotStream && activeId === cid) fail(describeFetchError(e));
 		} finally {
 			localRuns.delete(cid);
-			markBusy(cid, false);
+			const dropped = gotStream && !sawEnd;
+			if (!dropped) markBusy(cid, false);
 			currentRetry = null;
 			if (activeId === cid) {
 				// Let the last buffered text finish its reveal before finalizing.
 				await smoother.settle();
-				finishAsst();
-				if (wasHidden) {
-					const current = await fetchConvo(cid);
-					if (current && activeId === cid) showConvo(current);
+				if (!dropped) {
+					finishAsst();
+					if (wasHidden) {
+						const current = await fetchConvo(cid);
+						if (current && activeId === cid) showConvo(current);
+					}
 				}
 				scrollBottom();
 			}
+			// Dropped mid-run: resync and keep streaming from the live run.
+			if (dropped) void attachToRun(cid);
 			// Refresh titles/busy flags in the sidebar.
 			void loadConvos();
 		}
@@ -416,6 +438,7 @@
 		if (localRuns.has(cid)) return;
 		localRuns.add(cid);
 		let sawDone = false;
+		let sawError = false;
 		let wasHidden = false;
 		try {
 			const res = await apiFetch(`/api/attach?conversationId=${encodeURIComponent(cid)}`).catch(() => null);
@@ -424,6 +447,7 @@
 			for await (const { event, data } of readSse(res)) {
 				const d = data as Record<string, unknown>;
 				if (event === 'done') sawDone = true;
+				if (event === 'error') sawError = true;
 				if (activeId !== cid) {
 					wasHidden = true;
 					continue;
@@ -431,7 +455,7 @@
 				if (event === 'sync') {
 					const synced = (d.items as StoredItem[]) ?? [];
 					smoother.reset();
-					items = toItems(synced);
+					items = toItems(synced, true);
 					const last = items[items.length - 1];
 					if (last?.role === 'assistant') {
 						last.streaming = true;
@@ -458,11 +482,19 @@
 				}
 			}
 			if (activeId === cid) {
-				if (wasHidden) {
+				if (wasHidden && sawDone) {
 					const current = await fetchConvo(cid);
 					if (current && activeId === cid) showConvo(current);
 				}
 				scrollBottom();
+			}
+			// Ended without a verdict (network blip, server briefly unreachable)
+			// while the user is still viewing: try again shortly. A finished run
+			// resolves instantly (sync + done); a rejected attach sends `error`.
+			if (!sawDone && !sawError && activeId === cid) {
+				setTimeout(() => {
+					if (activeId === cid && !localRuns.has(cid)) void attachToRun(cid);
+				}, 1000);
 			}
 			void loadConvos();
 		}
