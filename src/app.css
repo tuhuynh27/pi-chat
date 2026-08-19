@@ -672,6 +672,14 @@ select {
 	margin-bottom: 18px;
 }
 
+/* .msg's content-visibility:auto contains layout, so a trailing .think's
+   margin no longer collapses with .msg's own margin-bottom - without this
+   they'd stack to 36px (a thinking-only bubble has no other trailing child
+   to absorb the collapse, unlike a text-ending bubble's .md). */
+.think:last-child {
+	margin-bottom: 0;
+}
+
 .think summary {
 	cursor: pointer;
 	list-style: none;
