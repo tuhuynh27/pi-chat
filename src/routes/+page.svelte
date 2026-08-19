@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import { fade } from 'svelte/transition';
 	import Header from '$lib/components/Header.svelte';
 	import Sidebar from '$lib/components/Sidebar.svelte';
@@ -61,6 +61,10 @@
 	const localRuns = new Set<string>();
 	/** Reveals buffered deltas a few chars per frame; see $lib/smoother. */
 	const smoother = createSmoother(() => scrollBottom());
+	/** Skip mount fades when replacing the whole thread (select / attach sync). */
+	let skipEnter = $state(false);
+	let enterGate = 0;
+	const fadeIn = $derived({ duration: skipEnter ? 0 : 140 });
 
 	function finishAsst() {
 		smoother.flush();
@@ -114,6 +118,28 @@
 				scrollEl.scrollTop = scrollEl.scrollHeight;
 			});
 		}
+	}
+
+	/** Force-pin after a bulk replace so content-visibility estimates can settle. */
+	function pinBottom() {
+		stick = true;
+		if (!scrollEl) return;
+		const go = () => {
+			scrollEl.scrollTop = scrollEl.scrollHeight;
+		};
+		go();
+		requestAnimationFrame(() => {
+			go();
+			requestAnimationFrame(go);
+		});
+	}
+
+	function suppressEnter() {
+		skipEnter = true;
+		const id = ++enterGate;
+		void tick().then(() => {
+			if (id === enterGate) skipEnter = false;
+		});
 	}
 
 	/* ---------------- errors ---------------- */
@@ -270,6 +296,7 @@
 	function showConvo(c: ConvoInfo) {
 		// Pending reveal (if any) targets items being replaced; drop it.
 		smoother.reset();
+		suppressEnter();
 		activeId = c.id;
 		const convoBusy = c.busy || localRuns.has(c.id);
 		items = toItems(c.items, convoBusy);
@@ -315,7 +342,7 @@
 		if (c.busy && !localRuns.has(c.id)) void attachToRun(c.id);
 		draft = '';
 		sidebarOpen = false;
-		scrollBottom(true);
+		pinBottom();
 	}
 
 	async function newChat() {
@@ -492,6 +519,7 @@
 					if (event === 'sync') {
 						const synced = (d.items as StoredItem[]) ?? [];
 						smoother.reset();
+						suppressEnter();
 						items = toItems(synced, true);
 						const last = items[items.length - 1];
 						if (last?.role === 'assistant') {
@@ -501,7 +529,7 @@
 						} else {
 							curAsst = null;
 						}
-						scrollBottom(true);
+						pinBottom();
 						continue;
 					}
 					handleEvent(event, d);
@@ -833,7 +861,7 @@
 				{:else}
 					{#each items as item, index (item.id)}
 						{#if item.role === 'user'}
-							<div class="msg user" transition:fade={{ duration: 140 }}>
+							<div class="msg user" transition:fade={fadeIn}>
 								{#if item.images?.length}
 									<div class="msg-images">
 										{#each item.images as img, i (i)}
@@ -858,7 +886,7 @@
 						{:else if item.role === 'assistant'}
 							{@const copyText = copyTexts[index] ?? ''}
 							{#if item.text || item.thinking || item.streaming}
-								<div class="msg assistant" transition:fade={{ duration: 140 }}>
+								<div class="msg assistant" class:streaming={item.streaming} transition:fade={fadeIn}>
 									<MessageItem item={item} />
 									{#if copyText}
 										<div class="copy-row">
@@ -869,7 +897,7 @@
 								</div>
 							{/if}
 						{:else if item.role === 'tool'}
-							<div transition:fade={{ duration: 140 }}>
+							<div transition:fade={fadeIn}>
 								{#if isExaTool(item)}
 									<ExaTool item={item} />
 								{:else}
@@ -877,7 +905,7 @@
 								{/if}
 							</div>
 						{:else}
-							<div class="msg error" transition:fade={{ duration: 140 }}>
+							<div class="msg error" transition:fade={fadeIn}>
 								{item.text}
 								{#if item.retry}
 									<div class="copy-row">

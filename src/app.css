@@ -511,6 +511,15 @@ select {
 	margin-bottom: 18px;
 }
 
+/* Skip layout/paint for off-screen finished bubbles. The live streaming
+   message is excluded so stick-to-bottom isn't fighting estimated heights.
+   `auto` in contain-intrinsic-size remembers the last real height after a
+   row has been on screen once. */
+.msg:not(.streaming) {
+	content-visibility: auto;
+	contain-intrinsic-size: auto 120px;
+}
+
 .msg.user {
 	display: flex;
 	flex-direction: column;
