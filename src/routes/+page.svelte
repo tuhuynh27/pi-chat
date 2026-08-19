@@ -7,7 +7,7 @@
 	import CopyMessage from '$lib/components/CopyMessage.svelte';
 	import RetryMessage from '$lib/components/RetryMessage.svelte';
 	import ToolLine from '$lib/components/ToolLine.svelte';
-	import ExaTool from '$lib/components/ExaTool.svelte';
+	import WebTool from '$lib/components/WebTool.svelte';
 	import Composer from '$lib/components/Composer.svelte';
 	import LoginGate from '$lib/components/LoginGate.svelte';
 	import LoadingScreen from '$lib/components/LoadingScreen.svelte';
@@ -16,7 +16,9 @@
 	import { createSmoother } from '$lib/smoother';
 	import { initTheme, setTheme, type Theme } from '$lib/theme';
 	import {
-		isExaTool,
+		asWebDetails,
+		webDetailsFromOutput,
+		isWebTool,
 		isTool,
 		toolDetail,
 		uid,
@@ -24,7 +26,6 @@
 		type AssistantItem,
 		type ConvoInfo,
 		type ConvoSummary,
-		type ExaDetails,
 		type ImageAttachment,
 		type Item,
 		type StoredItem,
@@ -73,6 +74,13 @@
 			curAsst.thinkingActive = false;
 		}
 		curAsst = null;
+	}
+
+	/** A finished run must never leave a tool row spinning. */
+	function settleRunningTools() {
+		for (const i of items) {
+			if (isTool(i) && i.status === 'running') i.status = 'done';
+		}
 	}
 	let lastError = '';
 	let lightboxSrc = $state<string | null>(null);
@@ -242,14 +250,21 @@
 				});
 				break;
 			case 'tool_end': {
-				const t = items.find((i): i is ToolItem => isTool(i) && i.id === String(d.id));
+				const id = String(d.id ?? '');
+				const name = typeof d.name === 'string' ? d.name : '';
+				// Prefer the matching call id; fall back to the most recent still-
+				// running tool of the same name (or any running tool) so a missed
+				// id never leaves a finished call spinning.
+				const t =
+					items.find((i): i is ToolItem => isTool(i) && i.id === id) ??
+					[...items].reverse().find((i): i is ToolItem => isTool(i) && i.status === 'running' && (!name || i.name === name)) ??
+					[...items].reverse().find((i): i is ToolItem => isTool(i) && i.status === 'running');
 				if (t) {
 					t.status = d.isError ? 'error' : 'done';
 					t.output = String(d.output ?? '');
-					const details = d.details as ExaDetails | null | undefined;
-					if (details && (details.kind === 'search' || details.kind === 'fetch')) {
-						t.details = details;
-					}
+					const details =
+						asWebDetails(d.details, name || t.name) ?? webDetailsFromOutput(t.output, name || t.name);
+					if (details) t.details = details;
 				}
 				break;
 			}
@@ -471,6 +486,7 @@
 				await smoother.settle();
 				if (!dropped) {
 					finishAsst();
+					settleRunningTools();
 					if (wasHidden) {
 						const current = await fetchConvo(cid);
 						if (current && activeId === cid) showConvo(current);
@@ -545,6 +561,7 @@
 				if (activeId === cid) {
 					await smoother.settle();
 					finishAsst();
+					settleRunningTools();
 				}
 			}
 			if (activeId === cid) {
@@ -898,8 +915,8 @@
 							{/if}
 						{:else if item.role === 'tool'}
 							<div transition:fade={fadeIn}>
-								{#if isExaTool(item)}
-									<ExaTool item={item} />
+								{#if isWebTool(item)}
+									<WebTool item={item} />
 								{:else}
 									<ToolLine item={item} />
 								{/if}

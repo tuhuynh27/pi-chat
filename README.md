@@ -121,7 +121,7 @@ The launcher appends an allow rule for the resolved `node` binary; the blanket e
 - **Login access gate** — environment-defined credentials with a 24-hour signed JWT session and protected API routes.
 - Streaming markdown (safe rendering by default)
 - Collapsible thinking blocks and tool activity rows
-- **Exa web tools** — `web_search_exa` + `web_fetch_exa`. Renders titles, URLs, highlights, previews, count + timing.
+- **Web search / fetch** — `web_search_exa` + `web_fetch_exa`, shown as generic web search and web fetch rows (titles, hosts, previews, result count).
 - Model picker + thinking-level control — per conversation. New conversations start with your latest choices.
 - Stop button mid-run; background runs continue on conversation switch.
 - Auto-scroll that yields when you scroll up.

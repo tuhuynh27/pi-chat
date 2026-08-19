@@ -22,7 +22,7 @@ import {
 	DEFAULT_THINKING,
 	modelsConfigFromEnv
 } from './default-models';
-import { toolDetail } from '../types';
+import { asWebDetails, toolDetail, WEB_TOOL_NAMES, webDetailsFromOutput } from '../types';
 import { coalesceDeltas } from './sse';
 import {
 	applyEvent,
@@ -625,7 +625,7 @@ export type SseEvent =
 	| { event: 'error'; data: { message: string } };
 
 /** Tools whose structured `details` payload is forwarded to the client. */
-const VISUAL_TOOLS = new Set(['web_search_exa', 'web_fetch_exa']);
+const VISUAL_TOOLS = WEB_TOOL_NAMES;
 
 /** Extract a JSON-serializable copy of a tool result's `details`, if any. */
 function safeDetails(result: unknown): Record<string, unknown> | null {
@@ -673,7 +673,13 @@ export function toSseEvents(e: AgentSessionEvent): SseEvent[] {
 						name: e.toolName,
 						isError: e.isError,
 						output: toolOutput(e.result),
-						...(VISUAL_TOOLS.has(e.toolName) ? { details: safeDetails(e.result) } : {})
+						...(VISUAL_TOOLS.has(e.toolName)
+							? {
+									details:
+										(asWebDetails(safeDetails(e.result), e.toolName) as Record<string, unknown> | undefined) ??
+										null
+								}
+							: {})
 					}
 				}
 			];
@@ -761,12 +767,17 @@ export function applyToConvo(id: string, e: AgentSessionEvent): void {
 					});
 					break;
 				case 'tool_execution_end': {
-					const t = c.items.find((i) => i.role === 'tool' && i.id === e.toolCallId);
+					const t =
+						c.items.find((i) => i.role === 'tool' && i.id === e.toolCallId) ??
+						[...c.items]
+							.reverse()
+							.find((i) => i.role === 'tool' && i.status === 'running' && i.name === e.toolName);
 					if (!t) return false;
 					t.status = e.isError ? 'error' : 'done';
 					t.output = toolOutput(e.result);
-					const details = VISUAL_TOOLS.has(e.toolName) ? safeDetails(e.result) : null;
-					if (details) t.details = details;
+					const raw = VISUAL_TOOLS.has(e.toolName) ? safeDetails(e.result) : null;
+					const details = asWebDetails(raw, e.toolName) ?? webDetailsFromOutput(t.output, e.toolName);
+					if (details) t.details = details as unknown as Record<string, unknown>;
 					break;
 				}
 				case 'message_end': {

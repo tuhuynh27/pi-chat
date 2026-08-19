@@ -810,126 +810,167 @@ select {
 	}
 }
 
-/* Exa search / fetch visualization */
+/* Web search / fetch */
 
-.exa {
-	border: 1px solid var(--line);
+.web {
 	margin: 0 0 18px;
 }
 
-.exa summary {
+.web summary,
+.web .wrow {
 	display: flex;
-	align-items: center;
+	align-items: baseline;
 	gap: 8px;
-	padding: 6px 11px;
-	cursor: pointer;
-	list-style: none;
+	padding: 2px 0;
 	font-size: 12.5px;
-	color: var(--muted);
+	color: var(--faint);
 	user-select: none;
 }
 
-.exa summary::-webkit-details-marker {
+.web summary {
+	cursor: pointer;
+	list-style: none;
+}
+
+.web summary::-webkit-details-marker {
 	display: none;
 }
 
-.exa .dot {
-	width: 7px;
-	height: 7px;
-	background: var(--faint);
-	flex: none;
-}
-
-.exa.running .dot {
-	background: var(--fg);
-	animation: pulse 1.1s ease-in-out infinite;
-}
-
-.exa.error .dot {
-	background: var(--error);
-}
-
-.exa .tname {
+.web summary::before {
+	content: '+';
 	font-weight: 600;
-	color: var(--fg);
 	flex: none;
 }
 
-.exa .tdetail {
+.web[open] summary::before {
+	content: '\2212';
+}
+
+.web .wrow::before {
+	content: '';
+	width: 0.65em;
+	flex: none;
+}
+
+.web .wname {
+	flex: none;
+	font-weight: 550;
+	color: var(--muted);
+}
+
+.web.running .wname {
+	color: var(--muted);
+}
+
+.web.error .wname {
+	color: var(--error);
+}
+
+.web .wdetail {
 	flex: 1;
 	min-width: 0;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+	color: var(--faint);
 }
 
-.exa .meta {
+.web .wmeta {
 	flex: none;
+	margin-left: auto;
 	font-size: 11.5px;
 	color: var(--faint);
 	font-variant-numeric: tabular-nums;
 }
 
-.exa .body {
-	border-top: 1px solid var(--line);
-	padding: 2px 0;
-	max-height: 420px;
+.web .tdots {
+	flex: none;
+	margin-left: auto;
+}
+
+.web .wbody {
+	margin: 6px 0 2px 17px;
+	max-height: 360px;
 	overflow-y: auto;
+	scrollbar-width: thin;
+	scrollbar-color: var(--line) transparent;
 }
 
-.exa .res {
-	padding: 9px 12px 10px;
+.web .wbody::-webkit-scrollbar {
+	width: 6px;
 }
 
-.exa .res + .res {
-	border-top: 1px solid var(--line);
+.web .wbody::-webkit-scrollbar-track {
+	background: transparent;
 }
 
-.exa .res.empty {
+.web .wbody::-webkit-scrollbar-thumb {
+	background: var(--line);
+}
+
+.web .wres + .wres {
+	margin-top: 10px;
+}
+
+.web .wempty,
+.web .werr {
 	color: var(--faint);
 	font-size: 12.5px;
 }
 
-.exa .rt {
-	font-size: 13.5px;
-	font-weight: 500;
-	line-height: 1.4;
+.web .werr {
+	color: var(--error);
+	white-space: pre-wrap;
 	overflow-wrap: break-word;
 }
 
-.exa .rstat {
-	margin-left: 8px;
-	padding: 1px 6px;
-	font-size: 11px;
-	font-weight: 600;
-	color: var(--muted);
-	border: 1px solid var(--line);
-	vertical-align: 1px;
+.web .wtop {
+	display: flex;
+	align-items: baseline;
+	gap: 8px;
+	min-width: 0;
 }
 
-.exa .rstat.bad {
-	color: var(--error);
-	border-color: var(--error);
+.web .wtitle {
+	flex: 1;
+	min-width: 0;
+	font-size: 13.5px;
+	font-weight: 500;
+	line-height: 1.4;
+	color: var(--fg);
+	text-decoration: none;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
-.exa .ru {
-	font-size: 12px;
+.web a.wtitle:hover {
+	text-decoration: underline;
+	text-decoration-color: var(--faint);
+	text-underline-offset: 3px;
+}
+
+.web .whost {
+	flex: none;
+	font-size: 11.5px;
 	color: var(--faint);
-	margin-top: 1px;
-	overflow-wrap: anywhere;
-	font-variant-numeric: tabular-nums;
 }
 
-.exa .rp {
+.web .wstat {
+	flex: none;
+	font-size: 11px;
+	color: var(--error);
+}
+
+.web .wprev {
 	font-size: 12.5px;
 	color: var(--muted);
-	margin-top: 4px;
+	margin-top: 2px;
 	line-height: 1.5;
 	display: -webkit-box;
-	-webkit-line-clamp: 3;
+	-webkit-line-clamp: 2;
 	-webkit-box-orient: vertical;
 	overflow: hidden;
-	white-space: pre-line;
 }
 
 /* Waiting indicator (assistant bubble with no content yet) */

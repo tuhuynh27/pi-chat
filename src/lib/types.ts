@@ -1,6 +1,6 @@
 export type ToolStatus = 'running' | 'done' | 'error';
 
-/** Structured payload for Exa tool results (from the agent's tool `details`). */
+/** Structured payload for web search / fetch tool results. */
 export interface ExaItemInfo {
 	title: string;
 	url: string;
@@ -15,7 +15,68 @@ export interface ExaDetails {
 	items: ExaItemInfo[];
 }
 
-export const EXA_TOOL_NAMES = new Set(['web_search_exa', 'web_fetch_exa']);
+export const WEB_TOOL_NAMES = new Set(['web_search_exa', 'web_fetch_exa']);
+
+export function webToolKind(name: string): 'search' | 'fetch' {
+	return name === 'web_fetch_exa' ? 'fetch' : 'search';
+}
+
+function webItemsFromUnknown(items: unknown[]): ExaItemInfo[] {
+	return items.flatMap((raw) => {
+		if (!raw || typeof raw !== 'object') return [];
+		const it = raw as Record<string, unknown>;
+		const highlight = Array.isArray(it.highlights) ? it.highlights[0] : undefined;
+		const preview =
+			typeof it.preview === 'string'
+				? it.preview
+				: typeof highlight === 'string'
+					? highlight
+					: typeof it.text === 'string'
+						? it.text
+						: undefined;
+		return [
+			{
+				title: typeof it.title === 'string' ? it.title : '',
+				url: typeof it.url === 'string' ? it.url : '',
+				...(preview ? { preview } : {}),
+				...(typeof it.status === 'string' ? { status: it.status } : {})
+			}
+		];
+	});
+}
+
+/** Normalize a tool `details` payload; infers kind from the tool name when omitted. */
+export function asWebDetails(raw: unknown, name = ''): ExaDetails | undefined {
+	if (!raw || typeof raw !== 'object') return undefined;
+	const d = raw as Partial<ExaDetails> & Record<string, unknown>;
+	const items = Array.isArray(d.items) ? webItemsFromUnknown(d.items) : undefined;
+	const kind =
+		d.kind === 'search' || d.kind === 'fetch'
+			? d.kind
+			: WEB_TOOL_NAMES.has(name)
+				? webToolKind(name)
+				: undefined;
+	if (!kind) return undefined;
+	return {
+		kind,
+		itemCount: typeof d.itemCount === 'number' ? d.itemCount : (items?.length ?? 0),
+		...(typeof d.searchTimeMs === 'number' ? { searchTimeMs: d.searchTimeMs } : {}),
+		items: items ?? []
+	};
+}
+
+/** Recover a details payload from the tool's JSON text output when `details` is missing. */
+export function webDetailsFromOutput(output: string, name: string): ExaDetails | undefined {
+	if (!output || !WEB_TOOL_NAMES.has(name)) return undefined;
+	try {
+		const parsed = JSON.parse(output) as { results?: unknown };
+		if (!Array.isArray(parsed.results)) return undefined;
+		const items = webItemsFromUnknown(parsed.results);
+		return { kind: webToolKind(name), itemCount: items.length, items };
+	} catch {
+		return undefined;
+	}
+}
 
 /** Max images allowed per user turn (clipboard paste or file attach). */
 export const MAX_IMAGES = 5;
@@ -45,7 +106,7 @@ export type ToolItem = Extract<Item, { role: 'tool' }>;
 
 export const isTool = (i: Item): i is ToolItem => i.role === 'tool';
 export const isAssistant = (i: Item): i is AssistantItem => i.role === 'assistant';
-export const isExaTool = (i: Item): i is ToolItem => isTool(i) && EXA_TOOL_NAMES.has(i.name);
+export const isWebTool = (i: Item): i is ToolItem => isTool(i) && WEB_TOOL_NAMES.has(i.name);
 
 /* ---------------- conversation history ---------------- */
 
@@ -100,15 +161,19 @@ export function toItems(stored: StoredItem[], busy = false): Item[] {
 				streaming: false
 			};
 		case 'tool': {
-			const details = i.details as ExaDetails | undefined;
+			const name = i.name ?? '';
+			const details = asWebDetails(i.details, name) ?? webDetailsFromOutput(i.output ?? '', name);
+			// Leftover `running` after a crash/restart must not spin forever.
+			// Details arriving is also enough to treat the call as finished.
+			const leftover = i.status === 'running' && (!busy || Boolean(details));
 			return {
 				id: i.id ?? uid(),
 				role: 'tool',
-				name: i.name ?? '',
+				name,
 				detail: i.detail ?? '',
-				status: i.status === 'running' ? (busy ? 'running' : 'done') : (i.status ?? 'done'),
+				status: leftover ? 'done' : (i.status ?? 'done'),
 				output: i.output ?? '',
-				details: details && (details.kind === 'search' || details.kind === 'fetch') ? details : undefined
+				details
 			};
 		}
 		default:
@@ -142,8 +207,17 @@ export function toolDetail(name: string, args: unknown): string {
 			return typeof a.pattern === 'string' ? str(a.pattern, 60) : str(a.path, 120);
 		case 'web_search_exa':
 			return str(a.query);
-		case 'web_fetch_exa':
-			return Array.isArray(a.urls) ? `${a.urls.length} URL${a.urls.length === 1 ? '' : 's'}` : '';
+		case 'web_fetch_exa': {
+			if (!Array.isArray(a.urls) || a.urls.length === 0) return '';
+			if (a.urls.length === 1 && typeof a.urls[0] === 'string') {
+				try {
+					return new URL(a.urls[0]).hostname.replace(/^www\./, '');
+				} catch {
+					return str(a.urls[0], 80);
+				}
+			}
+			return `${a.urls.length} pages`;
+		}
 		default: {
 			try {
 				const s = JSON.stringify(a);
