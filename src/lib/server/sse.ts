@@ -4,6 +4,12 @@ function sseFrame(event: string, data: unknown): Uint8Array {
 	return encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 }
 
+/** Comment-only SSE frame. Keeps proxies/browsers from idling out a silent stream. */
+const COMMENT_FRAME = encoder.encode(':\n\n');
+
+/** How often to poke an otherwise-silent stream so intermediaries don't drop it. */
+const KEEPALIVE_MS = 15_000;
+
 export type SseSend = (event: string, data: unknown) => void;
 
 /**
@@ -13,6 +19,29 @@ export type SseSend = (event: string, data: unknown) => void;
  */
 export function createSseWriter(controller: ReadableStreamDefaultController<Uint8Array>) {
 	let closed = false;
+	let keepalive: NodeJS.Timeout | null = null;
+
+	const stopKeepalive = () => {
+		if (!keepalive) return;
+		clearInterval(keepalive);
+		keepalive = null;
+	};
+
+	const poke = () => {
+		if (closed) return;
+		try {
+			controller.enqueue(COMMENT_FRAME);
+		} catch {
+			closed = true;
+			stopKeepalive();
+		}
+	};
+
+	// First byte immediately so the client can treat the stream as started
+	// (and so proxies flush headers) before the first real event.
+	poke();
+	keepalive = setInterval(poke, KEEPALIVE_MS);
+
 	return {
 		send(event: string, data: unknown) {
 			if (closed) return;
@@ -20,9 +49,11 @@ export function createSseWriter(controller: ReadableStreamDefaultController<Uint
 				controller.enqueue(sseFrame(event, data));
 			} catch {
 				closed = true;
+				stopKeepalive();
 			}
 		},
 		close() {
+			stopKeepalive();
 			if (closed) return;
 			closed = true;
 			try {
@@ -32,6 +63,7 @@ export function createSseWriter(controller: ReadableStreamDefaultController<Uint
 			}
 		},
 		cancel() {
+			stopKeepalive();
 			closed = true;
 		}
 	};

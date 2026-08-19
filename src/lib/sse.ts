@@ -21,6 +21,8 @@ export async function* readSse(res: Response): AsyncGenerator<SseMessage> {
 				let event = 'message';
 				const dataLines: string[] = [];
 				for (const line of frame.split('\n')) {
+					// Comment-only keepalive frames (`:\n\n`) have no event/data.
+					if (line.startsWith(':') || line.length === 0) continue;
 					if (line.startsWith('event:')) event = line.slice(6).trim();
 					else if (line.startsWith('data:')) dataLines.push(line.slice(5).replace(/^ /, ''));
 				}

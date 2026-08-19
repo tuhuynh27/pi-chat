@@ -395,8 +395,12 @@
 		// (request rejected). A stream that started but ended with neither was
 		// dropped mid-run (network blip, proxy timeout) while the run continues
 		// server-side - reattach instead of pretending it finished.
+		// A TypeError from fetch() itself is the same shape: the POST body may
+		// already have been accepted, so we resync rather than show a fake
+		// "Network error" over a chat that a refresh would reveal.
 		let gotStream = false;
 		let sawEnd = false;
+		let recoverStart = false;
 		try {
 			const res = await apiFetch(endpoint, {
 				method: 'POST',
@@ -426,10 +430,13 @@
 				scrollBottom();
 			}
 		} catch (e) {
-			if (!gotStream && activeId === cid) fail(describeFetchError(e));
+			if (!gotStream && activeId === cid) {
+				if (e instanceof TypeError) recoverStart = true;
+				else fail(describeFetchError(e));
+			}
 		} finally {
 			localRuns.delete(cid);
-			const dropped = gotStream && !sawEnd;
+			const dropped = (gotStream && !sawEnd) || recoverStart;
 			if (!dropped) markBusy(cid, false);
 			currentRetry = null;
 			if (activeId === cid) {
@@ -444,8 +451,10 @@
 				}
 				scrollBottom();
 			}
-			// Dropped mid-run: resync and keep streaming from the live run.
-			if (dropped) void attachToRun(cid);
+			// Dropped mid-run, or fetch() died before headers: resync. /api/attach
+			// is cheap when the run already ended (sync + done), which is the
+			// "refresh shows the full chat" case.
+			if (dropped) void attachToRun(cid, { speculative: recoverStart });
 			// Refresh titles/busy flags in the sidebar.
 			void loadConvos();
 		}
@@ -457,41 +466,47 @@
 	 * tab didn't start). Reads /api/attach: a `sync` event with the current
 	 * stored items, then live events until the run finishes.
 	 */
-	async function attachToRun(cid: string) {
+	async function attachToRun(cid: string, opts: { speculative?: boolean; attempt?: number } = {}) {
 		if (localRuns.has(cid)) return;
 		localRuns.add(cid);
+		const attempt = opts.attempt ?? 0;
 		let sawDone = false;
 		let sawError = false;
 		let wasHidden = false;
 		try {
 			const res = await apiFetch(`/api/attach?conversationId=${encodeURIComponent(cid)}`).catch(() => null);
 			const ct = res?.headers.get('content-type') ?? '';
-			if (!res?.ok || !ct.includes('text/event-stream') || !res.body) return;
-			for await (const { event, data } of readSse(res)) {
-				const d = data as Record<string, unknown>;
-				if (event === 'done') sawDone = true;
-				if (event === 'error') sawError = true;
-				if (activeId !== cid) {
-					wasHidden = true;
-					continue;
-				}
-				if (event === 'sync') {
-					const synced = (d.items as StoredItem[]) ?? [];
-					smoother.reset();
-					items = toItems(synced, true);
-					const last = items[items.length - 1];
-					if (last?.role === 'assistant') {
-						last.streaming = true;
-						last.thinkingActive = Boolean(last.thinking && !last.text);
-						curAsst = last;
-					} else {
-						curAsst = null;
+			if (!res?.ok || !ct.includes('text/event-stream') || !res.body) {
+				// Couldn't open the attach stream. Speculative recoveries (fetch()
+				// TypeError before headers) may just be offline — fall through to
+				// the retry/give-up path rather than spinning forever.
+			} else {
+				for await (const { event, data } of readSse(res)) {
+					const d = data as Record<string, unknown>;
+					if (event === 'done') sawDone = true;
+					if (event === 'error') sawError = true;
+					if (activeId !== cid) {
+						wasHidden = true;
+						continue;
 					}
-					scrollBottom(true);
-					continue;
+					if (event === 'sync') {
+						const synced = (d.items as StoredItem[]) ?? [];
+						smoother.reset();
+						items = toItems(synced, true);
+						const last = items[items.length - 1];
+						if (last?.role === 'assistant') {
+							last.streaming = true;
+							last.thinkingActive = Boolean(last.thinking && !last.text);
+							curAsst = last;
+						} else {
+							curAsst = null;
+						}
+						scrollBottom(true);
+						continue;
+					}
+					handleEvent(event, d);
+					scrollBottom();
 				}
-				handleEvent(event, d);
-				scrollBottom();
 			}
 		} catch {
 			// Best-effort resync; leave whatever snapshot is already shown.
@@ -514,10 +529,23 @@
 			// Ended without a verdict (network blip, server briefly unreachable)
 			// while the user is still viewing: try again shortly. A finished run
 			// resolves instantly (sync + done); a rejected attach sends `error`.
+			// Speculative attaches (fetch() died before headers — we don't know
+			// if the server accepted the turn) give up after a few tries so a
+			// truly offline send doesn't lock the composer. Known-busy attaches
+			// keep retrying: the run is still going server-side.
 			if (!sawDone && !sawError && activeId === cid) {
-				setTimeout(() => {
-					if (activeId === cid && !localRuns.has(cid)) void attachToRun(cid);
-				}, 1000);
+				if (!opts.speculative || attempt < 4) {
+					setTimeout(() => {
+						if (activeId === cid && !localRuns.has(cid)) {
+							void attachToRun(cid, { speculative: opts.speculative, attempt: attempt + 1 });
+						}
+					}, 1000);
+				} else {
+					markBusy(cid, false);
+					if (activeId === cid) {
+						fail('Network error - check your connection and try again.');
+					}
+				}
 			}
 			void loadConvos();
 		}
