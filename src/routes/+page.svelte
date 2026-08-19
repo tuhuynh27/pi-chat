@@ -97,7 +97,7 @@
 	let scrollFrame = 0;
 	let ignoreScroll = false;
 	let lastScrollTop = 0;
-	let touchY = 0;
+	let touchStartY = 0;
 
 	async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
 		const response = await fetch(input, init);
@@ -118,6 +118,14 @@
 
 	/** Subpixel / zoom slack. Anything past this is no longer "at the bottom". */
 	const BOTTOM_EPS = 4;
+	/** Real touch/scroll slop so sensor jitter and iOS rubber-band overscroll
+	 * can't be mistaken for the user deliberately scrolling away. A 1px
+	 * threshold fires on a plain tap (touch coordinates jitter a few px even
+	 * while "still") or on the bounce-back of a momentum scroll that landed
+	 * at the bottom - either way `stick` gets stuck false with nothing to
+	 * re-arm it (the content keeps growing, so the page never resettles
+	 * exactly at gapFromBottom() <= BOTTOM_EPS on its own). */
+	const UNSTICK_SLOP = 10;
 
 	function gapFromBottom() {
 		return scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight;
@@ -130,8 +138,9 @@
 			return;
 		}
 		// Content growth increases the gap without moving scrollTop — that is not a user scroll.
-		// Unstick on any upward move; restick only after the user scrolls back to the bottom.
-		if (top < lastScrollTop - 1) stick = false;
+		// Unstick on a real upward move; restick only after the user scrolls back to the bottom.
+		// The slop absorbs iOS rubber-band overscroll settling back to the boundary.
+		if (top < lastScrollTop - UNSTICK_SLOP) stick = false;
 		else if (gapFromBottom() <= BOTTOM_EPS) stick = true;
 		lastScrollTop = top;
 	}
@@ -142,13 +151,15 @@
 	}
 
 	function onTouchStart(event: TouchEvent) {
-		touchY = event.touches[0]?.clientY ?? 0;
+		touchStartY = event.touches[0]?.clientY ?? 0;
 	}
 
 	function onTouchMove(event: TouchEvent) {
-		const y = event.touches[0]?.clientY ?? touchY;
-		if (y > touchY + 1) stick = false;
-		touchY = y;
+		// Measured from the touchstart position, not the previous move - touch
+		// coordinates jitter a few px even during a stationary tap (e.g. on a
+		// suggestion or retry button), which would otherwise unstick on every tap.
+		const y = event.touches[0]?.clientY ?? touchStartY;
+		if (y > touchStartY + UNSTICK_SLOP) stick = false;
 	}
 
 	function scrollBottom(force = false) {
