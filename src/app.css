@@ -706,7 +706,6 @@ select {
 }
 
 .think .ttext {
-	white-space: pre-wrap;
 	overflow-wrap: break-word;
 	color: var(--muted);
 	font-size: 13px;

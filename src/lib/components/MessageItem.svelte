@@ -51,7 +51,16 @@
 			<span>{item.thinkingActive ? 'thinking' : 'thought'}</span>
 			{#if item.thinkingActive}<span class="tdots" aria-hidden="true"><i>·</i><i>·</i><i>·</i></span>{/if}
 		</summary>
-		<div class="ttext" bind:this={ttext}>{item.thinking}</div>
+		<div class="ttext md" bind:this={ttext}>
+			<SvelteMarkdown
+				source={item.thinking}
+				streaming={item.thinkingActive}
+				streamId={item.id}
+				options={markdownOptions}
+				extensions={markdownExtensions}
+				renderers={markdownRenderers}
+			/>
+		</div>
 	</details>
 {/if}
 
