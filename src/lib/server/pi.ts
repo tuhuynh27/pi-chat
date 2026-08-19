@@ -76,14 +76,40 @@ export function isSandboxed(): boolean {
 	return process.env.PI_WEB_SANDBOX === '1';
 }
 
-const sandboxed = isSandboxed();
+/** Chat-only: no file, shell, or machine tools. Exa search/fetch stay enabled. */
+const sessionToolOptions = { tools: ['web_search_exa', 'web_fetch_exa'] };
 
-/**
- * In sandbox mode the bash tool is dropped: the seatbelt profile denies all
- * process spawns, so it could never run anyway. Other tools stay — seatbelt
- * blocks their writes outside the temp dir at the OS level.
- */
-const sessionToolOptions = sandboxed ? { excludeTools: ['bash'] } : {};
+function formatNow(): string {
+	return new Intl.DateTimeFormat('en-US', {
+		weekday: 'long',
+		year: 'numeric',
+		month: 'long',
+		day: 'numeric',
+		hour: '2-digit',
+		minute: '2-digit',
+		hour12: false,
+		timeZoneName: 'short'
+	}).format(new Date());
+}
+
+function chatSystemPrompt(): string {
+	return `You are a helpful assistant in a web chat app. Reply in the conversation.
+
+You cannot read, write, or edit files, run shell commands, or perform any machine operations. Do not try to use file or coding-agent tools.
+
+Available tools:
+- web_search_exa: Search the web and return relevant results with source highlights
+- web_fetch_exa: Fetch clean markdown content from one or more web pages
+
+Guidelines:
+- Put all answers, explanations, and code in the chat reply. Never save code, solutions, or notes to a file.
+- When looking up information — facts, figures, news, people, products, quotes, dates, or anything that could be outdated or uncertain — you MUST use web_search_exa. Do not rely on memory for those.
+- After searching, use web_fetch_exa on the most relevant sources and carefully fact-check before answering. Prefer primary or recent sources. If sources disagree or you cannot verify something, say so.
+- Do not invent citations or URLs. Skip the tools only for pure reasoning, writing, or coding that needs no outside facts.
+- Be concise.
+
+Current date and time: ${formatNow()}`;
+}
 
 export interface PiSession {
 	agent: AgentSession;
@@ -233,6 +259,9 @@ async function makeResourceLoader(cwd: string) {
 		noSkills: true,
 		noPromptTemplates: true,
 		noThemes: true,
+		noContextFiles: true,
+		systemPromptOverride: () => chatSystemPrompt(),
+		appendSystemPromptOverride: () => [],
 		extensionFactories: [exaExtension]
 	});
 	await loader.reload();

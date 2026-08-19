@@ -171,6 +171,7 @@ export const exaExtension: InlineExtension = {
 			name: 'web_search_exa',
 			label: 'Exa Web Search',
 			description: 'Search the web with Exa and return relevant results with concise source highlights.',
+			promptSnippet: 'Search the web and return relevant results with source highlights',
 			parameters: Type.Object({
 				query: Type.String({ description: 'Natural-language web search query.' }),
 				numResults: Type.Optional(
@@ -213,6 +214,7 @@ export const exaExtension: InlineExtension = {
 			name: 'web_fetch_exa',
 			label: 'Exa Web Fetch',
 			description: 'Fetch clean, LLM-ready markdown content from one or more web pages using Exa.',
+			promptSnippet: 'Fetch clean markdown content from one or more web pages',
 			parameters: Type.Object({
 				urls: Type.Array(Type.String({ format: 'uri' }), {
 					minItems: 1,
