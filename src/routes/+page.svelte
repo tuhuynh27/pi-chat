@@ -770,7 +770,12 @@
 			window.clearTimeout(settleTimer);
 			clearViewportOverride();
 		};
-		const settleViewport = () => {
+		const settleViewport = (event: FocusEvent) => {
+			// Only a text entry losing focus can have left the keyboard-pan
+			// behind. A blur from anything else (a button removed from the DOM
+			// when busy flips, a tap on the sidebar) must not re-run this and
+			// stomp an unrelated, already-correct offset.
+			if (!isTextEntry(event.target)) return;
 			syncViewport();
 			window.clearTimeout(settleTimer);
 			settleTimer = window.setTimeout(syncViewport, 350);
