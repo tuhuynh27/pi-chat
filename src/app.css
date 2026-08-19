@@ -985,7 +985,9 @@ select {
 .md h1,
 .md h2,
 .md h3,
-.md h4 {
+.md h4,
+.md h5,
+.md h6 {
 	margin: 20px 0 8px;
 	line-height: 1.3;
 }
@@ -1002,6 +1004,12 @@ select {
 	font-size: 1.05em;
 }
 
+.md h4,
+.md h5,
+.md h6 {
+	font-size: 1em;
+}
+
 .md ul,
 .md ol {
 	margin: 0 0 12px;
@@ -1010,6 +1018,35 @@ select {
 
 .md li {
 	margin: 3px 0;
+}
+
+.md li.task {
+	list-style: none;
+	display: flex;
+	align-items: flex-start;
+	gap: 8px;
+}
+
+.md ul:has(> li.task) {
+	padding-left: 4px;
+}
+
+.md li.task input {
+	margin: 6px 0 0;
+	accent-color: var(--fg);
+}
+
+.md li.task .task-body {
+	min-width: 0;
+	flex: 1;
+}
+
+.md li.task .task-body > :first-child {
+	margin-top: 0;
+}
+
+.md li.task .task-body > :last-child {
+	margin-bottom: 0;
 }
 
 .md code {
@@ -1032,6 +1069,75 @@ select {
 	padding: 0;
 	font-size: 13px;
 	line-height: 1.6;
+}
+
+.md .code-block {
+	background: var(--soft);
+	border: 1px solid var(--line);
+	margin: 0 0 14px;
+}
+
+.md .code-bar {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 10px;
+	padding: 5px 10px;
+	border-bottom: 1px solid var(--line);
+	font-size: 11.5px;
+	color: var(--muted);
+}
+
+.md .code-lang {
+	font-variant-numeric: tabular-nums;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.md .code-copy {
+	flex: none;
+	border: none;
+	background: none;
+	color: var(--faint);
+	font-size: 11.5px;
+	line-height: 18px;
+	cursor: pointer;
+	padding: 0 2px;
+}
+
+.md .code-copy:hover {
+	color: var(--fg);
+}
+
+.md .code-copy:focus-visible {
+	outline: 1px solid var(--fg);
+	outline-offset: 1px;
+	color: var(--fg);
+}
+
+.md .code-block pre {
+	margin: 0;
+	border: 0;
+	background: transparent;
+}
+
+.md .shiki,
+.md .shiki span {
+	background: transparent !important;
+	color: var(--shiki-light);
+}
+
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme='light']) .md .shiki,
+	:root:not([data-theme='light']) .md .shiki span {
+		color: var(--shiki-dark);
+	}
+}
+
+:root[data-theme='dark'] .md .shiki,
+:root[data-theme='dark'] .md .shiki span {
+	color: var(--shiki-dark);
 }
 
 .md blockquote {
@@ -1078,6 +1184,104 @@ select {
 .md th {
 	background: var(--soft);
 	font-weight: 600;
+}
+
+.md img {
+	max-width: 100%;
+	height: auto;
+	border: 1px solid var(--line);
+}
+
+.md .katex {
+	font-size: 1.05em;
+}
+
+.md .katex-display {
+	overflow-x: auto;
+	overflow-y: hidden;
+	padding: 2px 0;
+	margin: 0 0 14px;
+}
+
+.md .mermaid-block {
+	border: 1px solid var(--line);
+	background: var(--soft);
+	padding: 12px;
+	margin: 0 0 14px;
+	overflow-x: auto;
+}
+
+.md .mermaid-block svg {
+	display: block;
+	max-width: 100%;
+	height: auto;
+	margin: 0 auto;
+}
+
+.md .mermaid-pending,
+.md .mermaid-error {
+	font-size: 13px;
+	color: var(--muted);
+}
+
+.md .mermaid-failed pre {
+	margin: 8px 0 0;
+	border: 0;
+	padding: 0;
+	background: none;
+}
+
+.md .alert {
+	border: 1px solid var(--line);
+	border-left-width: 2px;
+	padding: 10px 12px;
+	margin: 0 0 14px;
+}
+
+.md .alert-title {
+	font-size: 12.5px;
+	font-weight: 600;
+	margin-bottom: 3px;
+}
+
+.md .alert-body {
+	font-size: 14.5px;
+	color: var(--muted);
+	white-space: pre-wrap;
+	overflow-wrap: break-word;
+}
+
+.md .alert-warning,
+.md .alert-caution {
+	border-left-color: var(--error);
+}
+
+.md .alert-warning .alert-title,
+.md .alert-caution .alert-title {
+	color: var(--error);
+}
+
+.md .footnotes {
+	margin-top: 18px;
+	padding-top: 12px;
+	border-top: 1px solid var(--line);
+	font-size: 13.5px;
+	color: var(--muted);
+}
+
+.md .footnotes ol {
+	margin-bottom: 0;
+}
+
+.md .footnote-ref a,
+.md .footnote-backref {
+	text-decoration: none;
+	color: var(--muted);
+}
+
+.md .footnote-ref a:hover,
+.md .footnote-backref:hover {
+	color: var(--fg);
 }
 
 /* ---------------------------------------------------------------- */
