@@ -911,7 +911,7 @@
 			ontouchstart={onTouchStart}
 			ontouchmove={onTouchMove}
 		>
-			<div class="thread">
+			<div class="thread" class:busy>
 				{#if ready && items.length === 0}
 					<div class="empty">
 						<div class="big">What's moving the market?</div>

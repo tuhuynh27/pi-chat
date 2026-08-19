@@ -511,11 +511,18 @@ select {
 	margin-bottom: 18px;
 }
 
-/* Skip layout/paint for off-screen finished bubbles. The live streaming
-   message is excluded so stick-to-bottom isn't fighting estimated heights.
+/* Skip layout/paint for off-screen finished bubbles. Scoped to an idle
+   thread (`.thread:not(.busy)`), not just the single `.streaming` item -
+   a mid-turn bubble (e.g. a thinking-only segment closed out by a tool
+   call) also gains content-visibility the instant it stops streaming,
+   while the thread below it is still growing. Estimating that bubble's
+   height off the stale `contain-intrinsic-size` fallback fights
+   stick-to-bottom's scrollHeight math for the rest of the turn - visible
+   on mobile as a stray gap, or scrollTop landing far from the bottom once
+   generation ends and many bubbles settle to their real size at once.
    `auto` in contain-intrinsic-size remembers the last real height after a
    row has been on screen once. */
-.msg:not(.streaming) {
+.thread:not(.busy) .msg:not(.streaming) {
 	content-visibility: auto;
 	contain-intrinsic-size: auto 120px;
 }
