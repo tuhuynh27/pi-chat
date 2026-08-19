@@ -95,6 +95,9 @@
 	let scrollEl: HTMLDivElement;
 	let stick = true;
 	let scrollFrame = 0;
+	let ignoreScroll = false;
+	let lastScrollTop = 0;
+	let touchY = 0;
 
 	async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
 		const response = await fetch(input, init);
@@ -113,19 +116,55 @@
 
 	/* ---------------- scrolling ---------------- */
 
+	/** Subpixel / zoom slack. Anything past this is no longer "at the bottom". */
+	const BOTTOM_EPS = 4;
+
+	function gapFromBottom() {
+		return scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight;
+	}
+
 	function onScroll() {
-		stick = scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight < 80;
+		const top = scrollEl.scrollTop;
+		if (ignoreScroll) {
+			lastScrollTop = top;
+			return;
+		}
+		// Content growth increases the gap without moving scrollTop — that is not a user scroll.
+		// Unstick on any upward move; restick only after the user scrolls back to the bottom.
+		if (top < lastScrollTop - 1) stick = false;
+		else if (gapFromBottom() <= BOTTOM_EPS) stick = true;
+		lastScrollTop = top;
+	}
+
+	function onWheel(event: WheelEvent) {
+		// Unstick on the gesture itself so a pending auto-scroll rAF cannot yank back.
+		if (event.deltaY < 0) stick = false;
+	}
+
+	function onTouchStart(event: TouchEvent) {
+		touchY = event.touches[0]?.clientY ?? 0;
+	}
+
+	function onTouchMove(event: TouchEvent) {
+		const y = event.touches[0]?.clientY ?? touchY;
+		if (y > touchY + 1) stick = false;
+		touchY = y;
 	}
 
 	function scrollBottom(force = false) {
 		if (!scrollEl) return;
-		if (stick || force) {
-			if (scrollFrame) return;
-			scrollFrame = requestAnimationFrame(() => {
-				scrollFrame = 0;
-				scrollEl.scrollTop = scrollEl.scrollHeight;
+		if (!(stick || force)) return;
+		if (scrollFrame) return;
+		scrollFrame = requestAnimationFrame(() => {
+			scrollFrame = 0;
+			// Recheck: the user may have scrolled up since this frame was scheduled.
+			if (!(stick || force)) return;
+			ignoreScroll = true;
+			scrollEl.scrollTop = scrollEl.scrollHeight;
+			requestAnimationFrame(() => {
+				ignoreScroll = false;
 			});
-		}
+		});
 	}
 
 	/** Force-pin after a bulk replace so content-visibility estimates can settle. */
@@ -133,12 +172,18 @@
 		stick = true;
 		if (!scrollEl) return;
 		const go = () => {
+			ignoreScroll = true;
 			scrollEl.scrollTop = scrollEl.scrollHeight;
 		};
 		go();
 		requestAnimationFrame(() => {
 			go();
-			requestAnimationFrame(go);
+			requestAnimationFrame(() => {
+				go();
+				requestAnimationFrame(() => {
+					ignoreScroll = false;
+				});
+			});
 		});
 	}
 
@@ -856,7 +901,16 @@
 			onToggleTheme={toggleTheme}
 		/>
 
-		<div class="main" bind:this={scrollEl} onscroll={onScroll}>
+		<div
+			class="main"
+			bind:this={scrollEl}
+			role="region"
+			aria-label="Conversation"
+			onscroll={onScroll}
+			onwheel={onWheel}
+			ontouchstart={onTouchStart}
+			ontouchmove={onTouchMove}
+		>
 			<div class="thread">
 				{#if ready && items.length === 0}
 					<div class="empty">
