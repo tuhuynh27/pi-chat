@@ -9,6 +9,7 @@ import type {
 	AgentSession,
 	AgentSessionEvent,
 	CreateModelRuntimeOptions,
+	InlineExtension,
 	SessionMessageEntry
 } from '@earendil-works/pi-coding-agent';
 import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -250,6 +251,24 @@ export async function getRuntime(): Promise<ModelRuntime> {
 
 /* ---------------- sessions ---------------- */
 
+/**
+ * The SDK delivers already-buffered LLM tokens as a chain of resolved
+ * promises (microtasks). Without a macrotask yield, a fast burst starves
+ * the Node event loop — incoming HTTP (the HTML shell, JS, /api/*) sits
+ * pending until generation finishes. A refresh mid-run then looks like a
+ * dead static server.
+ */
+const eventLoopYieldExtension: InlineExtension = {
+	name: 'event-loop-yield',
+	factory: (api) => {
+		let n = 0;
+		api.on('message_update', async () => {
+			if (++n % 8 !== 0) return;
+			await new Promise<void>((resolve) => setImmediate(resolve));
+		});
+	}
+};
+
 /** Deterministic resource setup: bundled Exa extension only, no discovered extensions. */
 async function makeResourceLoader(cwd: string) {
 	const loader = new DefaultResourceLoader({
@@ -262,7 +281,7 @@ async function makeResourceLoader(cwd: string) {
 		noContextFiles: true,
 		systemPromptOverride: () => chatSystemPrompt(),
 		appendSystemPromptOverride: () => [],
-		extensionFactories: [exaExtension]
+		extensionFactories: [exaExtension, eventLoopYieldExtension]
 	});
 	await loader.reload();
 	return loader;
@@ -556,7 +575,9 @@ export interface ModelInfo {
 }
 
 export async function listModels(): Promise<ModelInfo[]> {
-	const models = await (await getRuntime()).getAvailable();
+	// Snapshot only. getAvailable() re-checks every built-in provider and can
+	// stall the request — the loading screen used to await this on every load.
+	const models = (await getRuntime()).getAvailableSnapshot();
 	return models
 		.map((m) => ({
 			id: `${m.provider}/${m.id}`,

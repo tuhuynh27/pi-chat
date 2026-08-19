@@ -710,16 +710,23 @@
 		activeId = null;
 		items = [];
 		models = [];
+		modelsLoaded = false;
 		busyIds = [];
 
-		const res = await apiFetch('/api/models').catch(() => null);
-		if (res?.ok) {
-			const body = (await res.json().catch(() => null)) as {
-				models?: { id: string; name: string; provider: string }[];
-			} | null;
-			models = body?.models ?? [];
-		}
-		modelsLoaded = true;
+		// Don't block the shell on the model catalog. A hung /api/models used to
+		// leave the loading screen up forever after a mid-run refresh.
+		const modelsPromise = apiFetch('/api/models')
+			.then(async (res) => {
+				if (!res.ok) return;
+				const body = (await res.json().catch(() => null)) as {
+					models?: { id: string; name: string; provider: string }[];
+				} | null;
+				models = body?.models ?? [];
+			})
+			.catch(() => {})
+			.finally(() => {
+				modelsLoaded = true;
+			});
 
 		await loadConvos();
 		if (convos.length === 0) {
@@ -728,6 +735,7 @@
 			await select(convos[0].id);
 		}
 		ready = true;
+		void modelsPromise;
 	}
 
 	async function authenticated() {
