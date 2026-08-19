@@ -110,6 +110,7 @@ export function createSmoother(onReveal: () => void) {
 		/** Reveal all pending thinking now (thinking phase ended; text may follow). */
 		flushThinking() {
 			revealThinking(pendingThinking.length);
+			if (item) onReveal();
 		},
 		/** Reveal everything now (tool row / error / finalization must not wait). */
 		flush,
