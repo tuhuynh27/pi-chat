@@ -3,7 +3,7 @@
 </script>
 
 <div class="loading-backdrop" role="status" aria-live="polite" aria-label="Loading" out:fade={{ duration: 140 }}>
-	<div class="loading-mark">π</div>
+	<div class="loading-mark">K</div>
 </div>
 
 <style>

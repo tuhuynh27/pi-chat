@@ -48,10 +48,10 @@
 <div class="auth-backdrop">
 	<div class="auth-panel" role="dialog" aria-modal="true" aria-labelledby="auth-title">
 		<div class="auth-head">
-			<div class="auth-mark" aria-hidden="true">π</div>
+			<div class="auth-mark" aria-hidden="true">K</div>
 			<div class="auth-kicker">Private workspace</div>
-			<h1 id="auth-title">Sign in to Pi</h1>
-			<p>Your conversations and coding agent are protected behind this access gate.</p>
+			<h1 id="auth-title">Sign in to Keva Chat</h1>
+			<p>Your conversations are protected behind this access gate.</p>
 		</div>
 
 		{#if configured === null}

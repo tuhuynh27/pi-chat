@@ -39,8 +39,8 @@
 			</svg>
 		</button>
 		<div class="brand">
-			<span class="logo">π</span>
-			<span class="title">pi chat</span>
+			<span class="logo">K</span>
+			<span class="title">Keva Chat</span>
 		</div>
 	</div>
 	<div class="controls">

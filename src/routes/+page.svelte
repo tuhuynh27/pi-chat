@@ -11,6 +11,7 @@
 	import Composer from '$lib/components/Composer.svelte';
 	import LoginGate from '$lib/components/LoginGate.svelte';
 	import LoadingScreen from '$lib/components/LoadingScreen.svelte';
+	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import { readSse } from '$lib/sse';
 	import { createSmoother } from '$lib/smoother';
 	import { initTheme, setTheme, type Theme } from '$lib/theme';
@@ -71,6 +72,11 @@
 	}
 	let lastError = '';
 	let lightboxSrc = $state<string | null>(null);
+	let pendingConfirm = $state<
+		| { kind: 'delete'; id: string; title: string }
+		| { kind: 'logout' }
+		| null
+	>(null);
 	/** Retry callback for the run currently in flight, attached to the error item if it fails. */
 	let currentRetry: (() => void) | null = null;
 	let appEl: HTMLDivElement;
@@ -339,6 +345,23 @@
 		sidebarOpen = false;
 		freshEmptyId = c.id;
 		await loadConvos();
+	}
+
+	function requestDelete(id: string) {
+		const convo = convos.find((c) => c.id === id);
+		pendingConfirm = { kind: 'delete', id, title: convo?.title || 'this chat' };
+	}
+
+	function requestLogout() {
+		pendingConfirm = { kind: 'logout' };
+	}
+
+	async function confirmAction() {
+		const pending = pendingConfirm;
+		pendingConfirm = null;
+		if (!pending) return;
+		if (pending.kind === 'delete') await del(pending.id);
+		else await logout();
 	}
 
 	async function del(id: string) {
@@ -733,7 +756,7 @@
 		activeId={activeId}
 		onNew={newChat}
 		onSelect={select}
-		onDelete={del}
+		onDelete={requestDelete}
 		onClose={() => (sidebarOpen = false)}
 	/>
 
@@ -748,7 +771,7 @@
 			onThinking={changeThinking}
 			onNew={newChat}
 			onMenu={() => (sidebarOpen = !sidebarOpen)}
-			onLogout={logout}
+			onLogout={requestLogout}
 			onToggleTheme={toggleTheme}
 		/>
 
@@ -758,7 +781,7 @@
 					<div class="empty">
 						<div class="big">What's moving the market?</div>
 						<div class="sub">
-							Ask about a ticker, sector, or headline. Pi can pull the latest data and news, then break down what actually matters.
+							Ask about a ticker, sector, or headline. Keva can pull the latest data and news, then break down what actually matters.
 						</div>
 						<div class="sugs">
 							{#each SUGGESTIONS as s (s)}
@@ -844,6 +867,19 @@
 
 {#if showLoadingScreen}
 	<LoadingScreen />
+{/if}
+
+{#if pendingConfirm}
+	<ConfirmDialog
+		title={pendingConfirm.kind === 'delete' ? 'Delete chat?' : 'Sign out?'}
+		message={pendingConfirm.kind === 'delete'
+			? `“${pendingConfirm.title}” will be permanently deleted.`
+			: 'You will need to sign in again to continue.'}
+		confirmLabel={pendingConfirm.kind === 'delete' ? 'Delete' : 'Sign out'}
+		danger={pendingConfirm.kind === 'delete'}
+		onConfirm={() => void confirmAction()}
+		onCancel={() => (pendingConfirm = null)}
+	/>
 {/if}
 
 {#if lightboxSrc}
