@@ -31,12 +31,13 @@ FROM node:${NODE_VERSION} AS runtime
 
 # BODY_SIZE_LIMIT: adapter-node defaults to 512K, which kills image uploads
 # mid-request (Safari surfaces that as a silent TypeError, not an error
-# response). 64M clears the app's own cap of 5 images x 8MB in pi.ts.
+# response). 128M leaves room for MAX_IMAGES worst-case PNGs as base64;
+# Cloudflare's 100M free-plan cap is the effective outer bound anyway.
 ENV NODE_ENV=production \
 	HOST=0.0.0.0 \
 	PORT=3000 \
 	PI_WEB_DATA_DIR=/data \
-	BODY_SIZE_LIMIT=64M
+	BODY_SIZE_LIMIT=128M
 
 WORKDIR /app
 

@@ -4,6 +4,15 @@ import { applyEvent, getConvo, saveNow } from '$lib/server/store';
 import { createSseWriter } from '$lib/server/sse';
 
 export const POST: RequestHandler = async ({ request }) => {
+	// Body must be fully read before the stream's first byte goes out - see
+	// the same ordering note in api/chat/+server.ts.
+	const body = (await request.json().catch(() => null)) as {
+		conversationId?: unknown;
+		index?: unknown;
+	} | null;
+	const conversationId = typeof body?.conversationId === 'string' ? body.conversationId : '';
+	const index = typeof body?.index === 'number' ? body.index : -1;
+
 	let writer: ReturnType<typeof createSseWriter> | null = null;
 	const stream = new ReadableStream<Uint8Array>({
 		start(controller) {
@@ -13,10 +22,6 @@ export const POST: RequestHandler = async ({ request }) => {
 
 			(async () => {
 				try {
-					const body = await request.json().catch(() => null);
-					const conversationId = typeof body?.conversationId === 'string' ? body.conversationId : '';
-					const index = typeof body?.index === 'number' ? body.index : -1;
-
 					const convo = getConvo(conversationId);
 					if (!convo) {
 						send('error', { message: 'Unknown conversation.' });

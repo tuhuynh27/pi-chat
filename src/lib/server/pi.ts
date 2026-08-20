@@ -42,8 +42,8 @@ const toImageContent = (images: ImageAttachment[]): ImageContent[] =>
 	images.map((img) => ({ type: 'image', data: img.data, mimeType: img.mimeType }));
 
 export const MAX_IMAGES = 5;
-/** Safety net against abuse; the client already downscales attachments well below this. */
-const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
+// No per-image byte cap: the request as a whole is bounded by the adapter's
+// BODY_SIZE_LIMIT (see Dockerfile), and the client downscales to 1568px.
 const IMAGE_MIME_RE = /^image\/[a-z0-9.+-]+$/i;
 const BASE64_RE = /^[A-Za-z0-9+/]+={0,2}$/;
 
@@ -57,7 +57,6 @@ export function parseImages(input: unknown): ImageAttachment[] | null {
 		const mimeType = (entry as { mimeType?: unknown })?.mimeType;
 		if (typeof data !== 'string' || typeof mimeType !== 'string') return null;
 		if (!IMAGE_MIME_RE.test(mimeType) || !BASE64_RE.test(data)) return null;
-		if (data.length * 0.75 > MAX_IMAGE_BYTES) return null;
 		images.push({ data, mimeType });
 	}
 	return images;
