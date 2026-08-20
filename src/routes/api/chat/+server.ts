@@ -13,10 +13,18 @@ export const POST: RequestHandler = async ({ request }) => {
 
 			(async () => {
 				try {
-					const body = await request.json().catch(() => null);
+					const body = await request.json().catch((e: unknown) => {
+						console.log(`chat: body read failed: ${e instanceof Error ? e.message : e}`);
+						return null;
+					});
 					const text = typeof body?.text === 'string' ? body.text.trim() : '';
 					const conversationId = typeof body?.conversationId === 'string' ? body.conversationId : '';
 					const images = parseImages(body?.images);
+					console.log(
+						`chat: cl=${request.headers.get('content-length') ?? '-'} text=${text.length} ` +
+							`imagesIn=${Array.isArray(body?.images) ? body.images.length : typeof body?.images} ` +
+							`parsed=${images ? images.length : 'INVALID'}`
+					);
 					if (!images) {
 						send('error', { message: 'Invalid image attachment.' });
 						close();

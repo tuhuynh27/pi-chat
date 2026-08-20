@@ -4,10 +4,20 @@ import { AUTH_COOKIE, verifyAuthToken } from '$lib/server/auth';
 
 const PUBLIC_API_ROUTES = new Set(['/api/auth/login', '/api/auth/logout', '/api/auth/status']);
 
+function logApi(event: Parameters<Handle>[0]['event'], status: number, startedAt: number) {
+	const length = event.request.headers.get('content-length') ?? '-';
+	console.log(
+		`api ${event.request.method} ${event.url.pathname} ${status} cl=${length} ${Date.now() - startedAt}ms`
+	);
+}
+
 export const handle: Handle = async ({ event, resolve }) => {
-	if (event.url.pathname.startsWith('/api/') && !PUBLIC_API_ROUTES.has(event.url.pathname)) {
+	const startedAt = Date.now();
+	const isApi = event.url.pathname.startsWith('/api/');
+	if (isApi && !PUBLIC_API_ROUTES.has(event.url.pathname)) {
 		const authenticated = verifyAuthToken(event.cookies.get(AUTH_COOKIE));
 		if (!authenticated) {
+			logApi(event, 401, startedAt);
 			return json(
 				{ error: 'Authentication required.' },
 				{ status: 401, headers: { 'cache-control': 'no-store' } }
@@ -28,5 +38,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 		});
 	}
 
-	return resolve(event);
+	const response = await resolve(event);
+	if (isApi) logApi(event, response.status, startedAt);
+	return response;
 };
