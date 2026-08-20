@@ -221,6 +221,8 @@
 		if (message === lastError) return;
 		lastError = message;
 		items.push({ id: uid(), role: 'error', text: message, retry: currentRetry ?? undefined });
+		// Keep the new bubble in view when pinned; not every caller scrolls.
+		scrollBottom();
 	}
 
 	/* ---------------- message construction ---------------- */
@@ -322,8 +324,8 @@
 				// id never leaves a finished call spinning.
 				const t =
 					items.find((i): i is ToolItem => isTool(i) && i.id === id) ??
-					[...items].reverse().find((i): i is ToolItem => isTool(i) && i.status === 'running' && (!name || i.name === name)) ??
-					[...items].reverse().find((i): i is ToolItem => isTool(i) && i.status === 'running');
+					items.findLast((i): i is ToolItem => isTool(i) && i.status === 'running' && (!name || i.name === name)) ??
+					items.findLast((i): i is ToolItem => isTool(i) && i.status === 'running');
 				if (t) {
 					t.status = d.isError ? 'error' : 'done';
 					t.output = String(d.output ?? '');
@@ -543,33 +545,47 @@
 			}
 		} finally {
 			localRuns.delete(cid);
-			const dropped = (gotStream && !sawEnd) || recoverStart;
-			if (!dropped) markBusy(cid, false);
 			currentRetry = null;
-			if (activeId === cid) {
-				// Let the last buffered text finish its reveal before finalizing.
-				await smoother.settle();
-				if (!dropped) {
-					finishAsst();
-					settleRunningTools();
-					if (wasHidden) {
-						const current = await fetchConvo(cid);
-						if (current && activeId === cid) showConvo(current);
-					}
-				}
-				// busy flipped false above, re-applying content-visibility to
-				// every settled bubble at once; its size estimates settle over a
-				// few frames and can clamp scrollTop hard. Hold the pin through
-				// it (never yank a user who scrolled away mid-run).
-				if (stick) pinBottom();
+			if ((gotStream && !sawEnd) || recoverStart) {
+				// Dropped mid-run, or fetch() died before headers: stay busy and
+				// resync. /api/attach is cheap when the run already ended
+				// (sync + done), which is the "refresh shows the full chat" case.
+				if (activeId === cid) await smoother.settle();
+				void attachToRun(cid, { speculative: recoverStart });
+			} else {
+				await finalizeRun(cid, wasHidden);
 			}
-			// Dropped mid-run, or fetch() died before headers: resync. /api/attach
-			// is cheap when the run already ended (sync + done), which is the
-			// "refresh shows the full chat" case.
-			if (dropped) void attachToRun(cid, { speculative: recoverStart });
 			// Refresh titles/busy flags in the sidebar.
 			void loadConvos();
 		}
+	}
+
+	/**
+	 * Shared end-of-run finalization for runChat and attachToRun. Order
+	 * matters: the composer is released (markBusy false) only AFTER the reveal
+	 * backlog has drained - while settle() is still revealing, busy must stay
+	 * true, or a quick follow-up send starts a new run whose first deltas race
+	 * this finalization (finishAsst() would flush the new run's backlog, strip
+	 * its streaming flag, and null curAsst, splitting the new reply across two
+	 * bubbles).
+	 */
+	async function finalizeRun(cid: string, wasHidden: boolean) {
+		if (activeId === cid) {
+			// Let the last buffered text finish its reveal before finalizing.
+			await smoother.settle();
+			finishAsst();
+			settleRunningTools();
+			if (wasHidden) {
+				const current = await fetchConvo(cid);
+				if (current && activeId === cid) showConvo(current);
+			}
+		}
+		markBusy(cid, false);
+		// busy just flipped false, re-applying content-visibility to every
+		// settled bubble at once; its size estimates settle over a few frames
+		// and can clamp scrollTop hard. Hold the pin through it (never yank a
+		// user who scrolled away mid-run).
+		if (activeId === cid && stick) pinBottom();
 	}
 
 	/**
@@ -625,25 +641,11 @@
 			// Best-effort resync; leave whatever snapshot is already shown.
 		} finally {
 			localRuns.delete(cid);
-			if (sawDone) {
-				markBusy(cid, false);
-				if (activeId === cid) {
-					await smoother.settle();
-					finishAsst();
-					settleRunningTools();
-				}
-			}
-			if (activeId === cid) {
-				if (wasHidden && sawDone) {
-					const current = await fetchConvo(cid);
-					if (current && activeId === cid) showConvo(current);
-				}
-				// Same content-visibility settling as runChat's finally when the
-				// run just finished; a plain scrollBottom() is a no-op when the
-				// user has scrolled away, so this only ever holds an existing pin.
-				if (sawDone && stick) pinBottom();
-				else scrollBottom();
-			}
+			if (sawDone) await finalizeRun(cid, wasHidden);
+			// Attach rejected (unknown conversation): that run can never finish,
+			// so release the composer - the error bubble is already shown.
+			else if (sawError) markBusy(cid, false);
+			else if (activeId === cid) scrollBottom();
 			// Ended without a verdict (network blip, server briefly unreachable)
 			// while the user is still viewing: try again shortly. A finished run
 			// resolves instantly (sync + done); a rejected attach sends `error`.
