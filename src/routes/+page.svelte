@@ -137,11 +137,16 @@
 			lastScrollTop = top;
 			return;
 		}
-		// Content growth increases the gap without moving scrollTop — that is not a user scroll.
-		// Unstick on a real upward move; restick only after the user scrolls back to the bottom.
-		// The slop absorbs iOS rubber-band overscroll settling back to the boundary.
-		if (top < lastScrollTop - UNSTICK_SLOP) stick = false;
-		else if (gapFromBottom() <= BOTTOM_EPS) stick = true;
+		// At (or clamped back to) the bottom means following, no matter how the
+		// scroll came about. Content SHRINK while pinned (the thinking block
+		// auto-collapsing on its first text delta, content-visibility
+		// re-estimating bubble heights when a run ends) makes the browser clamp
+		// scrollTop down and fire a scroll event that looks exactly like a user
+		// upward scroll - but it lands at the bottom, where a deliberate
+		// scroll-away never does. So check the gap first; only an upward move
+		// that actually leaves the bottom unsticks.
+		if (gapFromBottom() <= BOTTOM_EPS) stick = true;
+		else if (top < lastScrollTop - UNSTICK_SLOP) stick = false;
 		lastScrollTop = top;
 	}
 
@@ -164,12 +169,16 @@
 
 	function scrollBottom(force = false) {
 		if (!scrollEl) return;
-		if (!(stick || force)) return;
+		// A forced scroll (new send) re-engages follow; the programmatic scroll
+		// itself runs under ignoreScroll, so onScroll's restick branch never
+		// sees it and stick would otherwise stay false for the whole run.
+		if (force) stick = true;
+		if (!stick) return;
 		if (scrollFrame) return;
 		scrollFrame = requestAnimationFrame(() => {
 			scrollFrame = 0;
 			// Recheck: the user may have scrolled up since this frame was scheduled.
-			if (!(stick || force)) return;
+			if (!stick) return;
 			ignoreScroll = true;
 			scrollEl.scrollTop = scrollEl.scrollHeight;
 			requestAnimationFrame(() => {
@@ -548,7 +557,11 @@
 						if (current && activeId === cid) showConvo(current);
 					}
 				}
-				scrollBottom();
+				// busy flipped false above, re-applying content-visibility to
+				// every settled bubble at once; its size estimates settle over a
+				// few frames and can clamp scrollTop hard. Hold the pin through
+				// it (never yank a user who scrolled away mid-run).
+				if (stick) pinBottom();
 			}
 			// Dropped mid-run, or fetch() died before headers: resync. /api/attach
 			// is cheap when the run already ended (sync + done), which is the
@@ -625,7 +638,11 @@
 					const current = await fetchConvo(cid);
 					if (current && activeId === cid) showConvo(current);
 				}
-				scrollBottom();
+				// Same content-visibility settling as runChat's finally when the
+				// run just finished; a plain scrollBottom() is a no-op when the
+				// user has scrolled away, so this only ever holds an existing pin.
+				if (sawDone && stick) pinBottom();
+				else scrollBottom();
 			}
 			// Ended without a verdict (network blip, server briefly unreachable)
 			// while the user is still viewing: try again shortly. A finished run
