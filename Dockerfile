@@ -29,10 +29,14 @@ RUN pnpm run build
 
 FROM node:${NODE_VERSION} AS runtime
 
+# BODY_SIZE_LIMIT: adapter-node defaults to 512K, which kills image uploads
+# mid-request (Safari surfaces that as a silent TypeError, not an error
+# response). 64M clears the app's own cap of 5 images x 8MB in pi.ts.
 ENV NODE_ENV=production \
 	HOST=0.0.0.0 \
 	PORT=3000 \
-	PI_WEB_DATA_DIR=/data
+	PI_WEB_DATA_DIR=/data \
+	BODY_SIZE_LIMIT=64M
 
 WORKDIR /app
 
