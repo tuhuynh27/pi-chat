@@ -230,7 +230,7 @@
 		</div>
 	</form>
 	<div class="composer-meta" class:has-stats={!!stats}>
-		<p class="hint">{notice || 'enter to send · shift+enter for a new line · paste or attach images'}</p>
+		<p class="hint">{notice || 'shift+enter for a new line'}</p>
 		{#if stats}
 			<p class="stats" aria-hidden="true">
 				{#if stats.speed}<span class="stat-speed">{stats.speed}</span>{/if}
