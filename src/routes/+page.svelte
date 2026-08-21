@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount, tick } from 'svelte';
+	import { onDestroy, onMount, tick } from 'svelte';
 	import { fade } from 'svelte/transition';
 	import Header from '$lib/components/Header.svelte';
 	import Sidebar from '$lib/components/Sidebar.svelte';
@@ -57,6 +57,10 @@
 	let busy = $derived(activeId !== null && busyIds.includes(activeId));
 	let appInteractive = $derived(authState === 'authenticated' && ready);
 	let showLoadingScreen = $derived(authState === 'checking' || (authState === 'authenticated' && !ready));
+	const MODEL_SWAP_TRIGGER_MS = 5_000;
+	const MODEL_SWAP_COUNTDOWN_SECONDS = 100;
+	let modelSwapCountdowns = $state<Record<string, number>>({});
+	const modelSwapTimers = new Map<string, { reveal: ReturnType<typeof setTimeout>; tick?: ReturnType<typeof setInterval> }>();
 
 	let curAsst: AssistantItem | null = null;
 	const localRuns = new Set<string>();
@@ -224,6 +228,51 @@
 		items.push({ id: uid(), role: 'error', text: message, retry: currentRetry ?? undefined });
 		// Keep the new bubble in view when pinned; not every caller scrolls.
 		scrollBottom();
+	}
+
+	/* ---------------- first-response fallback ---------------- */
+
+	function stopModelSwapCountdown(id: string) {
+		const timer = modelSwapTimers.get(id);
+		if (timer) {
+			clearTimeout(timer.reveal);
+			if (timer.tick) clearInterval(timer.tick);
+			modelSwapTimers.delete(id);
+		}
+		if (id in modelSwapCountdowns) {
+			const { [id]: _, ...remaining } = modelSwapCountdowns;
+			modelSwapCountdowns = remaining;
+		}
+	}
+
+	function startModelSwapCountdown(id: string) {
+		stopModelSwapCountdown(id);
+		const timer: { reveal: ReturnType<typeof setTimeout>; tick?: ReturnType<typeof setInterval> } = {
+			reveal: setTimeout(() => {
+				if (!busyIds.includes(id)) {
+					stopModelSwapCountdown(id);
+					return;
+				}
+				modelSwapCountdowns = { ...modelSwapCountdowns, [id]: MODEL_SWAP_COUNTDOWN_SECONDS };
+				timer.tick = setInterval(() => {
+					const seconds = modelSwapCountdowns[id];
+					if (seconds === undefined || seconds <= 1) {
+						stopModelSwapCountdown(id);
+						return;
+					}
+					modelSwapCountdowns = { ...modelSwapCountdowns, [id]: seconds - 1 };
+				}, 1_000);
+			}, MODEL_SWAP_TRIGGER_MS)
+		};
+		modelSwapTimers.set(id, timer);
+	}
+
+	function stopAllModelSwapCountdowns() {
+		for (const id of [...modelSwapTimers.keys()]) stopModelSwapCountdown(id);
+	}
+
+	function formatCountdown(seconds: number): string {
+		return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 	}
 
 	/* ---------------- message construction ---------------- */
@@ -480,6 +529,7 @@
 	}
 
 	async function del(id: string) {
+		stopModelSwapCountdown(id);
 		if (id === freshEmptyId) freshEmptyId = null;
 		const wasActive = id === activeId;
 		await apiFetch(`/api/conversations/${encodeURIComponent(id)}`, { method: 'DELETE' }).catch(() => {});
@@ -501,6 +551,7 @@
 		const res = await apiFetch('/api/conversations', { method: 'DELETE' }).catch(() => null);
 		if (!res?.ok) return;
 		freshEmptyId = null;
+		stopAllModelSwapCountdowns();
 		finishAsst();
 		smoother.reset();
 		localRuns.clear();
@@ -550,6 +601,7 @@
 			gotStream = true;
 			for await (const { event, data } of readSse(res)) {
 				if (event === 'done' || event === 'error') sawEnd = true;
+				if (event === 'delta' || event === 'thinking' || event === 'tool_start') stopModelSwapCountdown(cid);
 				// The run continues server-side when the user switches
 				// conversations; the store stays current and is re-fetched on
 				// return, so skip rendering into a different conversation.
@@ -576,6 +628,7 @@
 				if (activeId === cid) await smoother.settle();
 				void attachToRun(cid, { speculative: recoverStart });
 			} else {
+				stopModelSwapCountdown(cid);
 				await finalizeRun(cid, wasHidden);
 			}
 			// Refresh titles/busy flags in the sidebar.
@@ -636,6 +689,7 @@
 					const d = data as Record<string, unknown>;
 					if (event === 'done') sawDone = true;
 					if (event === 'error') sawError = true;
+					if (event === 'delta' || event === 'thinking' || event === 'tool_start') stopModelSwapCountdown(cid);
 					if (activeId !== cid) {
 						wasHidden = true;
 						continue;
@@ -664,10 +718,16 @@
 			// Best-effort resync; leave whatever snapshot is already shown.
 		} finally {
 			localRuns.delete(cid);
-			if (sawDone) await finalizeRun(cid, wasHidden);
+			if (sawDone) {
+				stopModelSwapCountdown(cid);
+				await finalizeRun(cid, wasHidden);
+			}
 			// Attach rejected (unknown conversation): that run can never finish,
 			// so release the composer - the error bubble is already shown.
-			else if (sawError) markBusy(cid, false);
+			else if (sawError) {
+				stopModelSwapCountdown(cid);
+				markBusy(cid, false);
+			}
 			else if (activeId === cid) scrollBottom();
 			// Ended without a verdict (network blip, server briefly unreachable)
 			// while the user is still viewing: try again shortly. A finished run
@@ -697,6 +757,7 @@
 	async function send(text: string, images: ImageAttachment[] = []) {
 		if (busy || (!text.trim() && images.length === 0) || !activeId) return;
 		const cid = activeId;
+		const isFirstTurn = !items.some((item) => item.role === 'user');
 		lastError = '';
 		const insertAt = items.length;
 		items.push({ id: uid(), role: 'user', text, images: images.length ? images : undefined });
@@ -705,6 +766,7 @@
 			items = items.slice(0, insertAt);
 			void send(text, images);
 		};
+		if (isFirstTurn) startModelSwapCountdown(cid);
 		await runChat(cid, '/api/chat', { text, conversationId: cid, images });
 	}
 
@@ -893,6 +955,7 @@
 
 	async function logout() {
 		await fetch('/api/auth/logout', { method: 'POST' }).catch(() => null);
+		stopAllModelSwapCountdowns();
 		finishAsst();
 		localRuns.clear();
 		convos = [];
@@ -928,6 +991,10 @@
 		} else {
 			authState = 'required';
 		}
+	});
+
+	onDestroy(() => {
+		stopAllModelSwapCountdowns();
 	});
 </script>
 
@@ -1045,6 +1112,19 @@
 							</div>
 						{/if}
 					{/each}
+					{#if activeId && modelSwapCountdowns[activeId] !== undefined}
+						{@const seconds = modelSwapCountdowns[activeId]}
+						<div class="model-swap" aria-live="off" aria-label={`Preparing a fallback model. ${formatCountdown(seconds)} remaining.`}>
+							<div class="model-swap-head">
+								<span class="model-swap-label"><i aria-hidden="true"></i>Preparing a fallback model</span>
+								<time datetime={`PT${seconds}S`}>{formatCountdown(seconds)}</time>
+							</div>
+							<div class="model-swap-track" aria-hidden="true">
+								<span style:width={`${(seconds / MODEL_SWAP_COUNTDOWN_SECONDS) * 100}%`}></span>
+							</div>
+							<p>Your first response is taking longer than usual.</p>
+						</div>
+					{/if}
 				{/if}
 			</div>
 		</div>
