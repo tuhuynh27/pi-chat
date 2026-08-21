@@ -9,6 +9,7 @@
 	import ToolLine from '$lib/components/ToolLine.svelte';
 	import WebTool from '$lib/components/WebTool.svelte';
 	import Composer from '$lib/components/Composer.svelte';
+	import SugIcon from '$lib/components/SugIcon.svelte';
 	import LoginGate from '$lib/components/LoginGate.svelte';
 	import LoadingScreen from '$lib/components/LoadingScreen.svelte';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
@@ -35,10 +36,10 @@
 	} from '$lib/types';
 
 	const SUGGESTIONS = [
-		"What's driving the S&P 500 today, and which sectors are leading?",
-		"Summarize Nvidia's latest earnings call and how the market reacted",
-		"Which stocks are trending after today's Fed announcement?"
-	];
+		{ icon: 'chart', text: "What's driving the S&P 500 today, and which sectors are leading?" },
+		{ icon: 'earnings', text: "Summarize Nvidia's latest earnings call and how the market reacted" },
+		{ icon: 'fed', text: "Which stocks are trending after today's Fed announcement?" }
+	] as const;
 
 	let theme = $state<Theme>('light');
 	let convos = $state<ConvoSummary[]>([]);
@@ -1070,13 +1071,18 @@
 			<div class="thread" class:busy>
 				{#if ready && items.length === 0}
 					<div class="empty">
+						<div class="mark" aria-hidden="true">K</div>
 						<div class="big">What's moving the market?</div>
 						<div class="sub">
-							Ask about a ticker, sector, or headline. Keva can pull the latest data and news, then break down what actually matters.
+							Ask about a ticker, sector, or headline. Keva pulls the latest data and news, then breaks down what actually matters.
 						</div>
 						<div class="sugs">
-							{#each SUGGESTIONS as s (s)}
-								<button class="sug" onclick={() => send(s)} disabled={busy}>{s}</button>
+							{#each SUGGESTIONS as s (s.text)}
+								<button class="sug" onclick={() => send(s.text)} disabled={busy}>
+									<span class="sug-icon"><SugIcon icon={s.icon} /></span>
+									<span class="sug-text">{s.text}</span>
+									<span class="sug-arrow" aria-hidden="true">→</span>
+								</button>
 							{/each}
 						</div>
 						{#if modelsLoaded && models.length === 0}
