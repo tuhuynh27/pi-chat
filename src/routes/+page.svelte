@@ -86,6 +86,7 @@
 	let lightboxSrc = $state<string | null>(null);
 	let pendingConfirm = $state<
 		| { kind: 'delete'; id: string; title: string }
+		| { kind: 'delete-all' }
 		| { kind: 'logout' }
 		| null
 	>(null);
@@ -412,9 +413,9 @@
 		await apiFetch(`/api/conversations/${encodeURIComponent(id)}`, { method: 'DELETE' }).catch(() => {});
 	}
 
-	async function select(id: string) {
+	async function select(id: string, closeSidebar = true) {
 		if (id === activeId) {
-			sidebarOpen = false;
+			if (closeSidebar) sidebarOpen = false;
 			return;
 		}
 		await cleanupIfEmpty();
@@ -423,14 +424,14 @@
 		showConvo(c);
 		if (c.busy && !localRuns.has(c.id)) void attachToRun(c.id);
 		draft = '';
-		sidebarOpen = false;
+		if (closeSidebar) sidebarOpen = false;
 		pinBottom();
 	}
 
-	async function newChat() {
+	async function newChat(closeSidebar = true) {
 		// Already on an untouched empty chat - avoid piling up empty history entries.
 		if (activeId !== null && items.length === 0 && !draft.trim()) {
-			sidebarOpen = false;
+			if (closeSidebar) sidebarOpen = false;
 			return;
 		}
 		await cleanupIfEmpty();
@@ -451,7 +452,7 @@
 		curAsst = null;
 		markBusy(c.id, false);
 		lastError = '';
-		sidebarOpen = false;
+		if (closeSidebar) sidebarOpen = false;
 		freshEmptyId = c.id;
 		await loadConvos();
 	}
@@ -459,6 +460,10 @@
 	function requestDelete(id: string) {
 		const convo = convos.find((c) => c.id === id);
 		pendingConfirm = { kind: 'delete', id, title: convo?.title || 'this chat' };
+	}
+
+	function requestDeleteAll() {
+		if (convos.length > 0) pendingConfirm = { kind: 'delete-all' };
 	}
 
 	function requestLogout() {
@@ -470,6 +475,7 @@
 		pendingConfirm = null;
 		if (!pending) return;
 		if (pending.kind === 'delete') await del(pending.id);
+		else if (pending.kind === 'delete-all') await deleteAll();
 		else await logout();
 	}
 
@@ -480,15 +486,32 @@
 		convos = convos.filter((c) => c.id !== id);
 		if (wasActive) {
 			if (convos.length > 0) {
-				await select(convos[0].id);
+				await select(convos[0].id, false);
 			} else {
 				// Deleted convo's id is gone server-side; clear it so newChat()'s
 				// already-empty guard doesn't mistake it for a live empty chat.
 				activeId = null;
 				items = [];
-				await newChat();
+				await newChat(false);
 			}
 		}
+	}
+
+	async function deleteAll() {
+		const res = await apiFetch('/api/conversations', { method: 'DELETE' }).catch(() => null);
+		if (!res?.ok) return;
+		freshEmptyId = null;
+		finishAsst();
+		smoother.reset();
+		localRuns.clear();
+		busyIds = [];
+		convos = [];
+		activeId = null;
+		items = [];
+		draft = '';
+		curAsst = null;
+		lastError = '';
+		await newChat(false);
 	}
 
 	/* ---------------- actions ---------------- */
@@ -918,6 +941,7 @@
 		onNew={newChat}
 		onSelect={select}
 		onDelete={requestDelete}
+		onDeleteAll={requestDeleteAll}
 		onClose={() => (sidebarOpen = false)}
 	/>
 
@@ -1041,12 +1065,14 @@
 
 {#if pendingConfirm}
 	<ConfirmDialog
-		title={pendingConfirm.kind === 'delete' ? 'Delete chat?' : 'Sign out?'}
+		title={pendingConfirm.kind === 'delete' ? 'Delete chat?' : pendingConfirm.kind === 'delete-all' ? 'Delete all chat history?' : 'Sign out?'}
 		message={pendingConfirm.kind === 'delete'
 			? `“${pendingConfirm.title}” will be permanently deleted.`
+			: pendingConfirm.kind === 'delete-all'
+				? 'Every chat and its messages will be permanently deleted.'
 			: 'You will need to sign in again to continue.'}
-		confirmLabel={pendingConfirm.kind === 'delete' ? 'Delete' : 'Sign out'}
-		danger={pendingConfirm.kind === 'delete'}
+		confirmLabel={pendingConfirm.kind === 'delete' || pendingConfirm.kind === 'delete-all' ? 'Delete' : 'Sign out'}
+		danger={pendingConfirm.kind === 'delete' || pendingConfirm.kind === 'delete-all'}
 		onConfirm={() => void confirmAction()}
 		onCancel={() => (pendingConfirm = null)}
 	/>

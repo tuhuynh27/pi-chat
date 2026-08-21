@@ -8,6 +8,7 @@
 		onNew,
 		onSelect,
 		onDelete,
+		onDeleteAll,
 		onClose
 	}: {
 		open: boolean;
@@ -16,6 +17,7 @@
 		onNew: () => void;
 		onSelect: (id: string) => void;
 		onDelete: (id: string) => void;
+		onDeleteAll: () => void;
 		onClose: () => void;
 	} = $props();
 
@@ -87,4 +89,13 @@
 			<div class="none">No conversations yet</div>
 		{/each}
 	</nav>
+
+	<div class="side-foot">
+		<button class="delete-all" type="button" onclick={onDeleteAll} disabled={conversations.length === 0}>
+			<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
+				<path d="M2 3h8M4.5 3V1.8h3V3M3.2 3l.5 7.2h4.6l.5-7.2M5 5.2v3M7 5.2v3" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" fill="none" />
+			</svg>
+			Delete all chat history
+		</button>
+	</div>
 </aside>

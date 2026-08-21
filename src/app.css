@@ -231,6 +231,41 @@ select {
 	color: var(--faint);
 }
 
+.side-foot {
+	padding: 10px;
+	border-top: 1px solid var(--line);
+}
+
+.delete-all {
+	width: 100%;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 7px;
+	padding: 8px 10px;
+	border: 1px solid color-mix(in srgb, var(--error) 45%, var(--line));
+	background: var(--bg);
+	color: var(--error);
+	font-size: 12.5px;
+	font-weight: 550;
+	cursor: pointer;
+}
+
+.delete-all:hover:not(:disabled) {
+	background: color-mix(in srgb, var(--error) 8%, var(--bg));
+}
+
+.delete-all:focus-visible {
+	outline: 2px solid var(--error);
+	outline-offset: 2px;
+}
+
+.delete-all:disabled {
+	color: var(--faint);
+	border-color: var(--line);
+	cursor: default;
+}
+
 @media (max-width: 719px) {
 	.sidebar {
 		position: fixed;

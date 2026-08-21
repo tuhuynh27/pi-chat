@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
-import { busyIds } from '$lib/server/pi';
-import { createConvo, listConversations } from '$lib/server/store';
+import { busyIds, disposeSession } from '$lib/server/pi';
+import { createConvo, deleteAllConvos, listConversations, saveNow } from '$lib/server/store';
 
 export const GET = () => {
 	const busy = new Set(busyIds());
@@ -14,4 +14,12 @@ export const POST = async ({ request }) => {
 	const title = typeof body?.title === 'string' ? body.title : undefined;
 	const convo = createConvo({ title });
 	return json(convo);
+};
+
+export const DELETE = async () => {
+	const ids = listConversations().map((convo) => convo.id);
+	for (const id of ids) disposeSession(id);
+	deleteAllConvos();
+	await saveNow();
+	return json({ ok: true, count: ids.length });
 };

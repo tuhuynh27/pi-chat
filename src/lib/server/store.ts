@@ -208,6 +208,24 @@ export function deleteConvo(id: string): boolean {
 	return true;
 }
 
+/** Remove every conversation and its saved Pi session history. */
+export function deleteAllConvos(): string[] {
+	load();
+	const ids = [...convs.keys()];
+	if (ids.length === 0) return ids;
+	convs.clear();
+	try {
+		const dir = sessionDir();
+		for (const f of readdirSync(dir)) {
+			if (f.endsWith('.jsonl')) rmSync(join(dir, f), { force: true });
+		}
+	} catch {
+		/* ignore */
+	}
+	scheduleSave();
+	return ids;
+}
+
 /* ---------------- last model/thinking choice ---------------- */
 
 export function getLastModel(): string | null {
