@@ -2,6 +2,7 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from '@sveltejs/kit';
 import { contextUsage, disposeSession, getLiveSession, isBusy, isSandboxed } from '$lib/server/pi';
 import { deleteConvo, getConvo, saveNow } from '$lib/server/store';
+import { revokeSharesForConvo } from '$lib/server/share';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -22,6 +23,8 @@ export const GET: RequestHandler<{ id: string }> = ({ params }) => {
 
 export const DELETE: RequestHandler<{ id: string }> = async ({ params }) => {
 	disposeSession(params.id);
+	// A deleted conversation's share links stop resolving immediately.
+	revokeSharesForConvo(params.id);
 	const ok = deleteConvo(params.id);
 	await saveNow();
 	if (!ok) return json({ error: 'Conversation not found.' }, { status: 404 });

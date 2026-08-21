@@ -3,6 +3,8 @@ import type { Handle } from '@sveltejs/kit';
 import { AUTH_COOKIE, verifyAuthToken } from '$lib/server/auth';
 
 const PUBLIC_API_ROUTES = new Set(['/api/auth/login', '/api/auth/logout', '/api/auth/status']);
+// Prefix match: guest share links are public by design (read-only snapshot).
+const PUBLIC_API_PREFIXES = ['/api/share/'];
 
 function logApi(event: Parameters<Handle>[0]['event'], status: number, startedAt: number) {
 	const length = event.request.headers.get('content-length') ?? '-';
@@ -14,7 +16,10 @@ function logApi(event: Parameters<Handle>[0]['event'], status: number, startedAt
 export const handle: Handle = async ({ event, resolve }) => {
 	const startedAt = Date.now();
 	const isApi = event.url.pathname.startsWith('/api/');
-	if (isApi && !PUBLIC_API_ROUTES.has(event.url.pathname)) {
+	const isPublic =
+		PUBLIC_API_ROUTES.has(event.url.pathname) ||
+		PUBLIC_API_PREFIXES.some((prefix) => event.url.pathname.startsWith(prefix));
+	if (isApi && !isPublic) {
 		const authenticated = verifyAuthToken(event.cookies.get(AUTH_COOKIE));
 		if (!authenticated) {
 			logApi(event, 401, startedAt);

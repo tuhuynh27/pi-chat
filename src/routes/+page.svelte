@@ -13,6 +13,7 @@
 	import LoginGate from '$lib/components/LoginGate.svelte';
 	import LoadingScreen from '$lib/components/LoadingScreen.svelte';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
+	import ShareDialog from '$lib/components/ShareDialog.svelte';
 	import { readSse } from '$lib/sse';
 	import { createSmoother } from '$lib/smoother';
 	import { createSpeedTracker } from '$lib/speed.svelte';
@@ -104,6 +105,8 @@
 		| { kind: 'logout' }
 		| null
 	>(null);
+	/** Read-only share link for the active conversation (shown in ShareDialog). */
+	let shareUrl = $state<string | null>(null);
 	/** Retry callback for the run currently in flight, attached to the error item if it fails. */
 	let currentRetry: (() => void) | null = null;
 	let appEl: HTMLDivElement;
@@ -830,6 +833,24 @@
 		}).catch(() => {});
 	}
 
+	/**
+	 * Create a read-only share link for the active conversation and show it in
+	 * the ShareDialog. Disabled while a run is in flight (a mid-run snapshot
+	 * would end on a half-finished reply).
+	 */
+	async function share() {
+		if (!activeId) return;
+		const res = await apiFetch(`/api/conversations/${encodeURIComponent(activeId)}/share`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: '{}'
+		}).catch(() => null);
+		if (!res?.ok) return;
+		const body = (await res.json().catch(() => null)) as { token?: string } | null;
+		if (!body?.token) return;
+		shareUrl = `${window.location.origin}/share/${body.token}`;
+	}
+
 	async function changeModel(id: string) {
 		if (busy || id === model || !activeId) return;
 		const prev = model;
@@ -1053,6 +1074,8 @@
 			onModel={changeModel}
 			onThinking={changeThinking}
 			onNew={newChat}
+			onShare={share}
+			shareDisabled={busy || activeId === null}
 			onMenu={() => (sidebarOpen = !sidebarOpen)}
 			onLogout={requestLogout}
 			onToggleTheme={toggleTheme}
@@ -1192,6 +1215,10 @@
 		onConfirm={() => void confirmAction()}
 		onCancel={() => (pendingConfirm = null)}
 	/>
+{/if}
+
+{#if shareUrl}
+	<ShareDialog url={shareUrl} onClose={() => (shareUrl = null)} />
 {/if}
 
 {#if lightboxSrc}

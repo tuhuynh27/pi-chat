@@ -11,6 +11,8 @@
 		onModel,
 		onThinking,
 		onNew,
+		onShare,
+		shareDisabled = false,
 		onMenu,
 		onLogout,
 		onToggleTheme
@@ -23,6 +25,8 @@
 		onModel: (id: string) => void;
 		onThinking: (level: string) => void;
 		onNew: () => void;
+		onShare: () => void;
+		shareDisabled?: boolean;
 		onMenu: () => void;
 		onLogout: () => void;
 		onToggleTheme: () => void;
@@ -65,6 +69,19 @@
 				<path d="M5.5 1v9M1 5.5h9" stroke="currentColor" stroke-width="1.5" fill="none" />
 			</svg>
 			<span class="btn-text">New</span>
+		</button>
+		<button class="btn" onclick={onShare} disabled={shareDisabled} aria-label="Share conversation">
+			<svg width="11" height="11" viewBox="0 0 11 11" aria-hidden="true">
+				<path
+					d="M5.5 6.5V1.8M3.6 3.7 5.5 1.8l1.9 1.9M1.8 4.2v5h7.4v-5"
+					stroke="currentColor"
+					stroke-width="1.4"
+					fill="none"
+					stroke-linecap="round"
+					stroke-linejoin="round"
+				/>
+			</svg>
+			<span class="btn-text">Share</span>
 		</button>
 		<button
 			class="icon-btn"
