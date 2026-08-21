@@ -14,6 +14,7 @@
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import { readSse } from '$lib/sse';
 	import { createSmoother } from '$lib/smoother';
+	import { createSpeedTracker } from '$lib/speed.svelte';
 	import { initTheme, setTheme, type Theme } from '$lib/theme';
 	import {
 		asWebDetails,
@@ -24,6 +25,7 @@
 		uid,
 		toItems,
 		type AssistantItem,
+		type ContextInfo,
 		type ConvoInfo,
 		type ConvoSummary,
 		type ImageAttachment,
@@ -64,6 +66,13 @@
 
 	let curAsst: AssistantItem | null = null;
 	const localRuns = new Set<string>();
+	/** Token/s + context telemetry for the active conversation (composer footer). */
+	const speed = createSpeedTracker();
+	const speedStats = $derived(
+		speed.speedText || speed.contextText
+			? { speed: speed.speedText, context: speed.contextText }
+			: null
+	);
 	/** Reveals buffered deltas a few chars per frame; see $lib/smoother. */
 	const smoother = createSmoother(() => scrollBottom());
 	/** Skip mount fades when replacing the whole thread (select / attach sync). */
@@ -337,12 +346,14 @@
 					smoother.flushThinking();
 					a.thinkingActive = false;
 				}
+				speed.delta(String(d.text ?? ''));
 				smoother.push(a, 'text', String(d.text ?? ''));
 				break;
 			}
 			case 'thinking': {
 				const a = ensureAsst();
 				a.thinkingActive = true;
+				speed.delta(String(d.text ?? ''));
 				smoother.push(a, 'thinking', String(d.text ?? ''));
 				break;
 			}
@@ -383,6 +394,13 @@
 						asWebDetails(d.details, name || t.name) ?? webDetailsFromOutput(t.output, name || t.name);
 					if (details) t.details = details;
 				}
+				break;
+			}
+			case 'usage': {
+				// An assistant message finished: finalize the token/s reading with
+				// the server-reported output count and refresh the context gauge.
+				speed.finish(typeof d.output === 'number' ? d.output : undefined);
+				speed.setContext(d.context as ContextInfo | null);
 				break;
 			}
 			case 'message_error':
@@ -429,6 +447,8 @@
 		// Pending reveal (if any) targets items being replaced; drop it.
 		smoother.reset();
 		suppressEnter();
+		speed.reset();
+		speed.setContext(c.context ?? null);
 		activeId = c.id;
 		const convoBusy = c.busy || localRuns.has(c.id);
 		items = toItems(c.items, convoBusy);
@@ -493,6 +513,7 @@
 		const c = (await res.json().catch(() => null)) as ConvoInfo | null;
 		if (!c) return;
 		smoother.reset();
+		speed.reset();
 		activeId = c.id;
 		items = [];
 		draft = '';
@@ -554,6 +575,7 @@
 		stopAllModelSwapCountdowns();
 		finishAsst();
 		smoother.reset();
+		speed.reset();
 		localRuns.clear();
 		busyIds = [];
 		convos = [];
@@ -572,6 +594,7 @@
 		localRuns.add(cid);
 		markBusy(cid, true);
 		curAsst = null;
+		speed.begin();
 		scrollBottom(true);
 		let wasHidden = false;
 		// The server always ends a stream with `done` (run finished) or `error`
@@ -651,6 +674,9 @@
 			await smoother.settle();
 			finishAsst();
 			settleRunningTools();
+			// A run that ended without a usage event (error, abort) must not leave
+			// the prefill stopwatch or a live rate ticking.
+			speed.finish();
 			if (wasHidden) {
 				const current = await fetchConvo(cid);
 				if (current && activeId === cid) showConvo(current);
@@ -698,6 +724,7 @@
 						const synced = (d.items as StoredItem[]) ?? [];
 						smoother.reset();
 						suppressEnter();
+						speed.setContext(d.context as ContextInfo | null);
 						items = toItems(synced, true);
 						const last = items[items.length - 1];
 						if (last?.role === 'assistant') {
@@ -727,6 +754,7 @@
 			else if (sawError) {
 				stopModelSwapCountdown(cid);
 				markBusy(cid, false);
+				if (activeId === cid) speed.finish();
 			}
 			else if (activeId === cid) scrollBottom();
 			// Ended without a verdict (network blip, server briefly unreachable)
@@ -957,6 +985,7 @@
 		await fetch('/api/auth/logout', { method: 'POST' }).catch(() => null);
 		stopAllModelSwapCountdowns();
 		finishAsst();
+		speed.reset();
 		localRuns.clear();
 		convos = [];
 		items = [];
@@ -995,6 +1024,7 @@
 
 	onDestroy(() => {
 		stopAllModelSwapCountdowns();
+		speed.reset();
 	});
 </script>
 
@@ -1130,7 +1160,7 @@
 		</div>
 
 		{#key activeId}
-			<Composer bind:text={draft} {busy} onSend={send} onStop={stop} />
+			<Composer bind:text={draft} {busy} stats={speedStats} onSend={send} onStop={stop} />
 		{/key}
 	</div>
 </div>

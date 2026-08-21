@@ -3,6 +3,7 @@ import { rename, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { DEFAULT_MODEL, DEFAULT_PROVIDER, DEFAULT_THINKING } from './default-models';
+import type { ContextInfo } from '../types';
 
 /**
  * Conversation history store.
@@ -45,6 +46,8 @@ export interface Convo {
 	createdAt: number;
 	updatedAt: number;
 	items: StoredItem[];
+	/** Last known LLM context usage, kept so the gauge survives session eviction/restart. */
+	lastContext?: ContextInfo;
 }
 
 export interface ConvoSummary {

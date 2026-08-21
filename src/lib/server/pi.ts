@@ -22,7 +22,13 @@ import {
 	DEFAULT_THINKING,
 	modelsConfigFromEnv
 } from './default-models';
-import { asWebDetails, toolDetail, WEB_TOOL_NAMES, webDetailsFromOutput } from '../types';
+import {
+	asWebDetails,
+	toolDetail,
+	WEB_TOOL_NAMES,
+	webDetailsFromOutput,
+	type ContextInfo
+} from '../types';
 import { coalesceDeltas } from './sse';
 import {
 	applyEvent,
@@ -486,6 +492,47 @@ function isProgressEvent(e: AgentSessionEvent): boolean {
 	}
 }
 
+export interface UsageEventData {
+	input: number;
+	output: number;
+	cacheRead: number;
+	cacheWrite: number;
+	context: ContextInfo | null;
+}
+
+/**
+ * Payload for the `usage` SSE event, emitted after each finished assistant
+ * message: the message's server-reported token counts (the client uses
+ * `output` to finalize its token/s reading) plus the session's current
+ * context usage. Returns null for events that carry no usage.
+ */
+export function usageEventData(pi: PiSession, e: AgentSessionEvent): UsageEventData | null {
+	if (e.type !== 'message_end') return null;
+	const msg = e.message as {
+		role?: string;
+		usage?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number };
+	};
+	if (msg.role !== 'assistant' || !msg.usage) return null;
+	return {
+		input: msg.usage.input ?? 0,
+		output: msg.usage.output ?? 0,
+		cacheRead: msg.usage.cacheRead ?? 0,
+		cacheWrite: msg.usage.cacheWrite ?? 0,
+		context: contextUsage(pi)
+	};
+}
+
+/** Current context usage of a live session, or null when unavailable. */
+export function contextUsage(pi: PiSession): ContextInfo | null {
+	try {
+		const ctx = pi.agent.getContextUsage();
+		if (!ctx) return null;
+		return { tokens: ctx.tokens, contextWindow: ctx.contextWindow, percent: ctx.percent };
+	} catch {
+		return null;
+	}
+}
+
 /**
  * Run a prompt against a live session: mirrors agent events into SSE frames
  * (via `send`) and into the stored history. Shared by /api/chat and
@@ -512,6 +559,16 @@ export async function runPrompt(
 		if (stalled && e.type === 'message_end') return;
 		applyToConvo(convoId, e);
 		for (const sse of toSseEvents(e)) out.send(sse.event, sse.data);
+		const usage = usageEventData(pi, e);
+		if (usage) {
+			if (usage.context) {
+				const context = usage.context;
+				applyEvent(convoId, (c) => {
+					c.lastContext = context;
+				}, false);
+			}
+			out.send('usage', usage);
+		}
 	});
 	// Stall watchdog: the provider stack has no reliable mid-stream idle
 	// timeout on the SDK path (undici's 300s default fires eventually, but the

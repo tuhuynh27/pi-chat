@@ -12,12 +12,15 @@
 		busy,
 		onSend,
 		onStop,
-		text = $bindable('')
+		text = $bindable(''),
+		stats = null
 	}: {
 		busy: boolean;
 		onSend: (text: string, images: ImageAttachment[]) => void;
 		onStop: () => void;
 		text?: string;
+		/** Token/s + context telemetry for the footer line (null when there is nothing to show). */
+		stats?: { speed: string | null; context: string | null } | null;
 	} = $props();
 
 	let el: HTMLTextAreaElement;
@@ -226,5 +229,14 @@
 			{/if}
 		</div>
 	</form>
-	<p class="hint">{notice || 'enter to send · shift+enter for a new line · paste or attach images'}</p>
+	<div class="composer-meta" class:has-stats={!!stats}>
+		<p class="hint">{notice || 'enter to send · shift+enter for a new line · paste or attach images'}</p>
+		{#if stats}
+			<p class="stats" aria-hidden="true">
+				{#if stats.speed}<span class="stat-speed">{stats.speed}</span>{/if}
+				{#if stats.speed && stats.context}<span class="stat-sep">·</span>{/if}
+				{#if stats.context}<span>{stats.context}</span>{/if}
+			</p>
+		{/if}
+	</div>
 </div>

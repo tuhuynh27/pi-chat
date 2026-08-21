@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from '@sveltejs/kit';
-import { disposeSession, isBusy, isSandboxed, workspaceFor } from '$lib/server/pi';
+import { contextUsage, disposeSession, getLiveSession, isBusy, isSandboxed } from '$lib/server/pi';
 import { deleteConvo, getConvo, saveNow } from '$lib/server/store';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -8,12 +8,15 @@ import { join } from 'node:path';
 export const GET: RequestHandler<{ id: string }> = ({ params }) => {
 	const convo = getConvo(params.id);
 	if (!convo) return json({ error: 'Conversation not found.' }, { status: 404 });
+	const live = getLiveSession(convo.id);
 	return json({
 		...convo,
 		busy: isBusy(convo.id),
 		// Display-only: the dir is created on first use.
 		cwd: join(tmpdir(), `pi-web-${convo.id}`),
-		sandboxed: isSandboxed()
+		sandboxed: isSandboxed(),
+		// Live value when the session is in memory; last persisted one otherwise.
+		context: (live ? contextUsage(live) : null) ?? convo.lastContext ?? null
 	});
 };
 

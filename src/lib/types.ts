@@ -110,6 +110,15 @@ export const isWebTool = (i: Item): i is ToolItem => isTool(i) && WEB_TOOL_NAMES
 
 /* ---------------- conversation history ---------------- */
 
+/** LLM context usage snapshot (mirrors the SDK's ContextUsage shape). */
+export interface ContextInfo {
+	/** Estimated context tokens, or null if unknown (e.g. right after compaction). */
+	tokens: number | null;
+	contextWindow: number;
+	/** Usage as a percentage of the context window, or null if tokens is unknown. */
+	percent: number | null;
+}
+
 /** Stored item shape (mirrors the server store; no node imports here). */
 export interface StoredItem {
 	role: 'user' | 'assistant' | 'tool' | 'error';
@@ -139,6 +148,7 @@ export interface ConvoInfo extends ConvoSummary {
 	items: StoredItem[];
 	cwd?: string;
 	sandboxed?: boolean;
+	context?: ContextInfo | null;
 }
 
 /**
