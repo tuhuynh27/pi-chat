@@ -40,7 +40,8 @@ export const DEFAULT_MODELS_CONFIG = {
 					id: 'qwen3.6-35b-a3b',
 					name: 'Qwen 3.6 35B A3B',
 					reasoning: true,
-					input: ['text', 'image'],
+					// Runs with --language-model-only (vision off), see vllm-service
+					input: ['text'],
 					contextWindow: 262144,
 					maxTokens: 16384,
 					cost: {
@@ -54,8 +55,9 @@ export const DEFAULT_MODELS_CONFIG = {
 					id: 'qwen3.8-27b',
 					name: 'Qwen 3.8 27B',
 					reasoning: true,
-					input: ['text'],
-					contextWindow: 131072,
+					input: ['text', 'image'],
+					// 130048, not 131072: vision needs ~1K KV headroom (vllm-service)
+					contextWindow: 130048,
 					maxTokens: 16384,
 					cost: {
 						input: 0.1,
