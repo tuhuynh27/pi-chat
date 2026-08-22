@@ -1,3 +1,5 @@
+import { writeJsonChunks } from './async-json';
+
 const encoder = new TextEncoder();
 
 function sseFrame(event: string, data: unknown): Uint8Array {
@@ -51,6 +53,22 @@ export function createSseWriter(controller: ReadableStreamDefaultController<Uint
 				closed = true;
 				stopKeepalive();
 			}
+		},
+		async sendAsync(event: string, data: unknown) {
+			if (closed) return;
+			stopKeepalive();
+			try {
+				controller.enqueue(encoder.encode(`event: ${event}\ndata: `));
+				await writeJsonChunks(data, async (chunk) => {
+					if (closed) throw new Error('SSE stream canceled.');
+					controller.enqueue(encoder.encode(chunk));
+					await new Promise<void>((resolve) => setImmediate(resolve));
+				});
+				if (!closed) controller.enqueue(encoder.encode('\n\n'));
+			} catch {
+				closed = true;
+			}
+			if (!closed) keepalive = setInterval(poke, KEEPALIVE_MS);
 		},
 		close() {
 			stopKeepalive();

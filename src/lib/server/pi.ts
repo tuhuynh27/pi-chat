@@ -1,6 +1,7 @@
 import {
 	createAgentSession,
 	DefaultResourceLoader,
+	migrateSessionEntries,
 	ModelRuntime,
 	SessionManager,
 	SettingsManager
@@ -9,10 +10,11 @@ import type {
 	AgentSession,
 	AgentSessionEvent,
 	CreateModelRuntimeOptions,
+	FileEntry,
 	InlineExtension,
 	SessionMessageEntry
 } from '@earendil-works/pi-coding-agent';
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdir, mkdtemp, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { exaExtension } from './exa';
@@ -40,6 +42,8 @@ import {
 	type ImageAttachment
 } from './store';
 import { cleanupOldWorkspaces } from './workspace';
+import { streamingJsonBody, writeJsonLinesFile } from './async-json';
+import { parseJsonFile } from './json-worker';
 
 /** Structural match for the SDK's (unexported) ImageContent type. */
 type ImageContent = { type: 'image'; data: string; mimeType: string };
@@ -51,10 +55,11 @@ export const MAX_IMAGES = 5;
 // No per-image byte cap: the request as a whole is bounded by the adapter's
 // BODY_SIZE_LIMIT (see Dockerfile), and the client downscales to 1568px.
 const IMAGE_MIME_RE = /^image\/[a-z0-9.+-]+$/i;
-const BASE64_RE = /^[A-Za-z0-9+/]+={0,2}$/;
+const BASE64_CHUNK_RE = /^[A-Za-z0-9+/]+$/;
+const BASE64_VALIDATION_CHUNK_SIZE = 64 * 1024;
 
 /** Validate a request body's `images` field. Returns null on any malformed entry. */
-export function parseImages(input: unknown): ImageAttachment[] | null {
+export async function parseImages(input: unknown): Promise<ImageAttachment[] | null> {
 	if (input === undefined) return [];
 	if (!Array.isArray(input) || input.length > MAX_IMAGES) return null;
 	const images: ImageAttachment[] = [];
@@ -62,7 +67,16 @@ export function parseImages(input: unknown): ImageAttachment[] | null {
 		const data = (entry as { data?: unknown })?.data;
 		const mimeType = (entry as { mimeType?: unknown })?.mimeType;
 		if (typeof data !== 'string' || typeof mimeType !== 'string') return null;
-		if (!IMAGE_MIME_RE.test(mimeType) || !BASE64_RE.test(data)) return null;
+		if (!IMAGE_MIME_RE.test(mimeType) || data.length === 0) return null;
+		const paddingLength = data.endsWith('==') ? 2 : data.endsWith('=') ? 1 : 0;
+		const contentEnd = data.length - paddingLength;
+		if (contentEnd === 0) return null;
+		for (let offset = 0; offset < contentEnd; offset += BASE64_VALIDATION_CHUNK_SIZE) {
+			if (!BASE64_CHUNK_RE.test(data.slice(offset, offset + BASE64_VALIDATION_CHUNK_SIZE))) {
+				return null;
+			}
+			await new Promise<void>((resolve) => setImmediate(resolve));
+		}
 		images.push({ data, mimeType });
 	}
 	return images;
@@ -126,6 +140,8 @@ export interface PiSession {
 	sessionManager: SessionManager;
 	/** Last time this session was fetched or finished a run (idle eviction). */
 	lastUsed: number;
+	/** Flush the SDK session history through the non-blocking persistence adapter. */
+	flushSession: () => Promise<void>;
 }
 
 /**
@@ -147,12 +163,14 @@ function stallTimeoutFromEnv(): number {
 const STALL_TIMEOUT_MS = stallTimeoutFromEnv();
 
 const sessions = new Map<string, PiSession>();
-let runtime: ModelRuntime | null = null;
+let runtime: Promise<ModelRuntime> | null = null;
 let scopedSettings: SettingsManager | null = null;
-let isolatedAgentDir: string | null = null;
+let isolatedAgentDir: Promise<string> | null = null;
 
 type CredentialStore = NonNullable<CreateModelRuntimeOptions['credentials']>;
 type Credential = Exclude<Awaited<ReturnType<CredentialStore['read']>>, undefined>;
+type ModelsStore = NonNullable<CreateModelRuntimeOptions['modelsStore']>;
+type ModelsStoreEntry = Exclude<Awaited<ReturnType<ModelsStore['read']>>, undefined>;
 
 /** Volatile store prevents the SDK from consulting or writing auth.json. */
 function createEnvironmentCredentialStore(): CredentialStore {
@@ -183,20 +201,36 @@ function createEnvironmentCredentialStore(): CredentialStore {
 	};
 }
 
-/**
- * Settings manager whose global scope is the app data dir, NOT ~/.pi/agent.
- * Sessions persist their default model/thinking level on every change; scoping
- * them to the data dir keeps the host pi CLI config untouched.
- */
+/** The app uses a static environment catalog, so no file-backed model cache is needed. */
+function createMemoryModelsStore(): ModelsStore {
+	const entries = new Map<string, ModelsStoreEntry>();
+	return {
+		async read(providerId, options) {
+			options?.signal?.throwIfAborted();
+			const entry = entries.get(providerId);
+			return entry ? structuredClone(entry) : undefined;
+		},
+		async write(providerId, entry, options) {
+			options?.signal?.throwIfAborted();
+			entries.set(providerId, structuredClone(entry));
+		},
+		async delete(providerId, options) {
+			options?.signal?.throwIfAborted();
+			entries.delete(providerId);
+		}
+	};
+}
+
+/** SDK settings stay in memory; the conversation store owns persisted choices. */
 function getSettings(): SettingsManager {
 	if (!scopedSettings) {
-		scopedSettings = SettingsManager.create(dataDir(), dataDir());
-		if (!scopedSettings.getDefaultProvider() && !scopedSettings.getDefaultModel()) {
-			scopedSettings.setDefaultModelAndProvider(DEFAULT_PROVIDER, DEFAULT_MODEL);
-		}
-		if (!scopedSettings.getDefaultThinkingLevel()) {
-			scopedSettings.setDefaultThinkingLevel(DEFAULT_THINKING);
-		}
+		// The app persists these choices in its own store. Keeping SDK settings
+		// in memory avoids its synchronous file-backed settings implementation.
+		scopedSettings = SettingsManager.inMemory({
+			defaultProvider: DEFAULT_PROVIDER,
+			defaultModel: DEFAULT_MODEL,
+			defaultThinkingLevel: DEFAULT_THINKING
+		});
 	}
 	return scopedSettings;
 }
@@ -207,22 +241,22 @@ type Model = NonNullable<ReturnType<ModelRuntime['getModel']>>;
 /* ---------------- workspaces ---------------- */
 
 /** Stable per-conversation temp workspace (survives restarts until tmp cleanup). */
-export function workspaceFor(id: string): string {
+export async function workspaceFor(id: string): Promise<string> {
 	const dir = join(tmpdir(), `pi-web-${id}`);
-	mkdirSync(dir, { recursive: true });
+	await mkdir(dir, { recursive: true });
 	return dir;
 }
 
-export function deleteWorkspace(id: string): void {
+export async function deleteWorkspace(id: string): Promise<void> {
 	try {
-		rmSync(join(tmpdir(), `pi-web-${id}`), { recursive: true, force: true });
+		await rm(join(tmpdir(), `pi-web-${id}`), { recursive: true, force: true });
 	} catch {
 		/* best-effort */
 	}
 }
 
 /** Sweep stale workspaces, never touching live sessions. */
-cleanupOldWorkspaces(new Set(sessions.keys()));
+void cleanupOldWorkspaces(new Set(sessions.keys()));
 
 /* ---------------- model runtime ---------------- */
 
@@ -230,27 +264,37 @@ cleanupOldWorkspaces(new Set(sessions.keys()));
  * Give the SDK an isolated config directory generated from environment
  * values. Nothing is discovered or copied from the host's ~/.pi directory.
  */
-function getIsolatedAgentDir(): string {
-	if (isolatedAgentDir) return isolatedAgentDir;
-	isolatedAgentDir = mkdtempSync(join(tmpdir(), 'pi-web-agent-'));
-	writeFileSync(
-		join(isolatedAgentDir, 'models.json'),
-		JSON.stringify(modelsConfigFromEnv(), null, 2)
-	);
+function getIsolatedAgentDir(): Promise<string> {
+	if (!isolatedAgentDir) {
+		isolatedAgentDir = (async () => {
+			const dir = await mkdtemp(join(tmpdir(), 'pi-web-agent-'));
+			await writeFile(join(dir, 'models.json'), JSON.stringify(modelsConfigFromEnv(), null, 2));
+			return dir;
+		})();
+		isolatedAgentDir.catch(() => {
+			isolatedAgentDir = null;
+		});
+	}
 	return isolatedAgentDir;
 }
 
 async function makeRuntime(): Promise<ModelRuntime> {
-	const agentDir = getIsolatedAgentDir();
+	const agentDir = await getIsolatedAgentDir();
 	return await ModelRuntime.create({
 		credentials: createEnvironmentCredentialStore(),
 		modelsPath: join(agentDir, 'models.json'),
-		modelsStorePath: join(agentDir, 'models-store.json')
+		modelsStore: createMemoryModelsStore(),
+		refreshOnCreate: false
 	});
 }
 
 export async function getRuntime(): Promise<ModelRuntime> {
-	if (!runtime) runtime = await makeRuntime();
+	if (!runtime) {
+		runtime = makeRuntime();
+		runtime.catch(() => {
+			runtime = null;
+		});
+	}
 	return runtime;
 }
 
@@ -274,11 +318,57 @@ const eventLoopYieldExtension: InlineExtension = {
 	}
 };
 
+const STREAM_PROVIDER_BODY_THRESHOLD = 256 * 1024;
+
+function containsLargeString(value: unknown): boolean {
+	const pending = [value];
+	const seen = new WeakSet<object>();
+	while (pending.length > 0) {
+		const current = pending.pop();
+		if (typeof current === 'string') {
+			if (current.length > STREAM_PROVIDER_BODY_THRESHOLD) return true;
+			continue;
+		}
+		if (!current || typeof current !== 'object' || seen.has(current)) continue;
+		seen.add(current);
+		pending.push(...Object.values(current));
+	}
+	return false;
+}
+
+/** Stream large OpenAI-compatible payloads so historical images do not freeze Node. */
+const streamingProviderBodyExtension: InlineExtension = {
+	name: 'streaming-provider-body',
+	factory: (api) => {
+		api.on('before_provider_headers', (event, context) => {
+			if (context.model?.api !== 'openai-completions') return;
+			const hasContentType = Object.keys(event.headers).some(
+				(name) => name.toLowerCase() === 'content-type'
+			);
+			if (!hasContentType) event.headers['content-type'] = 'application/json';
+		});
+		api.on('before_provider_request', (event, context) => {
+			const payload = event.payload as { stream?: unknown; messages?: unknown } | null;
+			if (
+				context.model?.api !== 'openai-completions' ||
+				!payload ||
+				payload.stream !== true ||
+				!Array.isArray(payload.messages) ||
+				!containsLargeString(payload)
+			) {
+				return;
+			}
+			return streamingJsonBody(payload);
+		});
+	}
+};
+
 /** Deterministic resource setup: bundled Exa extension only, no discovered extensions. */
 async function makeResourceLoader(cwd: string) {
+	const agentDir = await getIsolatedAgentDir();
 	const loader = new DefaultResourceLoader({
 		cwd,
-		agentDir: getIsolatedAgentDir(),
+		agentDir,
 		noExtensions: true,
 		noSkills: true,
 		noPromptTemplates: true,
@@ -286,7 +376,7 @@ async function makeResourceLoader(cwd: string) {
 		noContextFiles: true,
 		systemPromptOverride: () => chatSystemPrompt(),
 		appendSystemPromptOverride: () => [],
-		extensionFactories: [exaExtension, eventLoopYieldExtension]
+		extensionFactories: [exaExtension, eventLoopYieldExtension, streamingProviderBodyExtension]
 	});
 	await loader.reload();
 	return loader;
@@ -296,15 +386,90 @@ async function makeResourceLoader(cwd: string) {
  * Resume the conversation's Pi session file if one exists, else create it.
  * File naming: `<timestamp>_<convoId>.jsonl` (see SessionManager).
  */
-function sessionManagerFor(convoId: string, cwd: string): SessionManager {
+async function sessionManagerFor(convoId: string, cwd: string): Promise<SessionManager> {
 	const dir = sessionDir();
-	const existing = readdirSync(dir)
+	const existing = (await readdir(dir))
 		.filter((f) => f.endsWith(`_${convoId}.jsonl`))
 		.sort()
 		.at(-1);
-	if (existing) return SessionManager.open(join(dir, existing), dir, cwd);
+	if (existing) {
+		const path = join(dir, existing);
+		let entries = await parseJsonFile<FileEntry[]>(path, 'jsonl');
+		const header = entries[0];
+		if (!header || header.type !== 'session' || typeof header.id !== 'string') entries = [];
+		else migrateSessionEntries(entries);
+
+		// The SDK constructor accepts preloaded entries internally. Supplying the
+		// worker-parsed data avoids SessionManager.open() synchronously reading and
+		// parsing the entire JSONL file on the HTTP event loop.
+		type PreloadedSessionManager = new (
+			cwd: string,
+			sessionDir: string,
+			sessionFile: string,
+			persist: boolean,
+			options: undefined,
+			entries: FileEntry[]
+		) => SessionManager;
+		const Constructor = SessionManager as unknown as PreloadedSessionManager;
+		return new Constructor(cwd, dir, path, true, undefined, entries);
+	}
 	return SessionManager.create(cwd, dir, { id: convoId });
 }
+
+/**
+ * The SDK persists every session entry with appendFileSync and JSON.stringify.
+ * Image messages can be tens of megabytes, making that path freeze every HTTP
+ * request. Replace its public persistence hook with an atomic, cooperative
+ * JSONL writer while retaining the SessionManager's in-memory tree behavior.
+ */
+function useAsyncSessionPersistence(manager: SessionManager): () => Promise<void> {
+	const path = manager.getSessionFile();
+	if (!path) return async () => undefined;
+
+	const tmp = `${path}.${process.pid}.tmp`;
+	let timer: NodeJS.Timeout | null = null;
+	let dirty = false;
+	let writeChain = Promise.resolve();
+
+	const flush = async (): Promise<void> => {
+		if (timer) {
+			clearTimeout(timer);
+			timer = null;
+		}
+		if (!dirty) {
+			await writeChain;
+			return;
+		}
+
+		dirty = false;
+		const header = manager.getHeader();
+		const entries = [...(header ? [header] : []), ...manager.getEntries()];
+		writeChain = writeChain
+			.then(async () => {
+				await writeJsonLinesFile(tmp, entries);
+				await rename(tmp, path);
+			})
+			.catch((error) => {
+				console.error(`session persistence failed: ${error instanceof Error ? error.message : error}`);
+			});
+		await writeChain;
+		if (dirty) await flush();
+	};
+
+	const schedule = () => {
+		dirty = true;
+		if (timer) clearTimeout(timer);
+		timer = setTimeout(() => {
+			timer = null;
+			void flush();
+		}, 100);
+	};
+
+	manager._persist = schedule;
+	return flush;
+}
+
+const sessionCreations = new Map<string, Promise<PiSession>>();
 
 /** Get (or lazily create) the live session for a conversation. */
 export async function getSession(id: string, convo: Convo): Promise<PiSession> {
@@ -313,29 +478,48 @@ export async function getSession(id: string, convo: Convo): Promise<PiSession> {
 		existing.lastUsed = Date.now();
 		return existing;
 	}
+	const pending = sessionCreations.get(id);
+	if (pending) return pending;
 
-	const cwd = workspaceFor(id);
-	// Pass the conversation's model + thinking level INTO createAgentSession:
-	// the SDK clamps the level against the chosen model. Post-hoc
-	// setThinkingLevel would clamp against the session's fallback model, and
-	// an un-awaited setModel could race the level application.
-	const model = convo.model ? await resolveModelId(convo.model) : null;
-	const sessionManager = sessionManagerFor(id, cwd);
-	const { session } = await createAgentSession({
-		cwd,
-		agentDir: getIsolatedAgentDir(),
-		sessionManager,
-		modelRuntime: await getRuntime(),
-		resourceLoader: await makeResourceLoader(cwd),
-		settingsManager: getSettings(),
-		...(model ? { model } : {}),
-		...(convo.thinking ? { thinkingLevel: convo.thinking as ThinkingLevel } : {}),
-		...sessionToolOptions
-	});
+	const creating = (async () => {
+		const cwd = await workspaceFor(id);
+		// Pass the conversation's model + thinking level INTO createAgentSession:
+		// the SDK clamps the level against the chosen model. Post-hoc
+		// setThinkingLevel would clamp against the session's fallback model, and
+		// an un-awaited setModel could race the level application.
+		const model = convo.model ? await resolveModelId(convo.model) : null;
+		const sessionManager = await sessionManagerFor(id, cwd);
+		const flushSession = useAsyncSessionPersistence(sessionManager);
+		const agentDir = await getIsolatedAgentDir();
+		const { session } = await createAgentSession({
+			cwd,
+			agentDir,
+			sessionManager,
+			modelRuntime: await getRuntime(),
+			resourceLoader: await makeResourceLoader(cwd),
+			settingsManager: getSettings(),
+			...(model ? { model } : {}),
+			...(convo.thinking ? { thinkingLevel: convo.thinking as ThinkingLevel } : {}),
+			...sessionToolOptions
+		});
 
-	const pi: PiSession = { agent: session, cwd, busy: false, sessionManager, lastUsed: Date.now() };
-	sessions.set(id, pi);
-	return pi;
+		const pi: PiSession = {
+			agent: session,
+			cwd,
+			busy: false,
+			sessionManager,
+			lastUsed: Date.now(),
+			flushSession
+		};
+		sessions.set(id, pi);
+		return pi;
+	})();
+	sessionCreations.set(id, creating);
+	try {
+		return await creating;
+	} finally {
+		sessionCreations.delete(id);
+	}
 }
 
 /**
@@ -350,6 +534,7 @@ setInterval(
 		for (const [id, s] of sessions) {
 			if (s.busy || s.lastUsed > cutoff) continue;
 			sessions.delete(id);
+			void s.flushSession();
 			try {
 				s.agent.dispose();
 			} catch {
@@ -361,17 +546,20 @@ setInterval(
 ).unref();
 
 /** Dispose a live session and its workspace (conversation deleted). */
-export function disposeSession(id: string): void {
+export async function disposeSession(id: string): Promise<void> {
+	const pending = sessionCreations.get(id);
+	if (pending) await pending.catch(() => undefined);
 	const s = sessions.get(id);
 	if (s) {
 		sessions.delete(id);
+		await s.flushSession();
 		try {
 			s.agent.dispose();
 		} catch {
 			/* best-effort */
 		}
 	}
-	deleteWorkspace(id);
+	await deleteWorkspace(id);
 }
 
 export function isBusy(id: string): boolean {
@@ -602,6 +790,7 @@ export async function runPrompt(
 		if (watchdog) clearInterval(watchdog);
 		unsubscribe();
 		out.flush();
+		await pi.flushSession();
 		pi.busy = false;
 		pi.lastUsed = Date.now();
 		notifyDone(convoId, ok);

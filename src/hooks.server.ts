@@ -1,6 +1,15 @@
 import { json } from '@sveltejs/kit';
-import type { Handle } from '@sveltejs/kit';
+import type { Handle, ServerInit } from '@sveltejs/kit';
 import { AUTH_COOKIE, verifyAuthToken } from '$lib/server/auth';
+import { ensureStoreLoaded } from '$lib/server/store';
+// Load the agent backend before the server accepts requests. Node otherwise
+// resolves its large dependency graph during the first conversation reply.
+import '$lib/server/pi';
+import '@earendil-works/pi-ai/api/openai-completions';
+
+export const init: ServerInit = async () => {
+	await ensureStoreLoaded();
+};
 
 const PUBLIC_API_ROUTES = new Set(['/api/auth/login', '/api/auth/logout', '/api/auth/status']);
 // Prefix match: guest share links are public by design (read-only snapshot).
@@ -28,6 +37,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 				{ status: 401, headers: { 'cache-control': 'no-store' } }
 			);
 		}
+		await ensureStoreLoaded();
 	}
 
 	// The HTML shell contains deployment-specific hashed asset URLs. Never let a

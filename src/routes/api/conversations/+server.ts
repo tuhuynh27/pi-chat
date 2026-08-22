@@ -19,9 +19,9 @@ export const POST = async ({ request }) => {
 
 export const DELETE = async () => {
 	const ids = listConversations().map((convo) => convo.id);
-	for (const id of ids) disposeSession(id);
+	await Promise.all(ids.map((id) => disposeSession(id)));
 	revokeAllShares();
-	deleteAllConvos();
+	await deleteAllConvos();
 	await saveNow();
 	return json({ ok: true, count: ids.length });
 };

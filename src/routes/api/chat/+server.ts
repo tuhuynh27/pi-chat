@@ -2,6 +2,9 @@ import type { RequestHandler } from '@sveltejs/kit';
 import { claimRun, getSession, parseImages, releaseRun, runPrompt } from '$lib/server/pi';
 import { applyEvent, getConvo, saveNow, touchTitle } from '$lib/server/store';
 import { createSseWriter } from '$lib/server/sse';
+import { parseJsonBuffer } from '$lib/server/json-worker';
+
+const MAIN_THREAD_JSON_LIMIT = 256 * 1024;
 
 export const POST: RequestHandler = async ({ request }) => {
 	// Consume the request body COMPLETELY before constructing the streaming
@@ -10,13 +13,24 @@ export const POST: RequestHandler = async ({ request }) => {
 	// uploading, browsers (Safari especially, and Chrome behind some proxies)
 	// abort the upload - which killed image messages big enough to still be
 	// in flight when the early response arrived.
-	const body = (await request.json().catch((e: unknown) => {
-		console.log(`chat: body read failed: ${e instanceof Error ? e.message : e}`);
-		return null;
-	})) as { text?: unknown; conversationId?: unknown; images?: unknown } | null;
+	const body = (await request
+		.arrayBuffer()
+		.then((data) =>
+			data.byteLength > MAIN_THREAD_JSON_LIMIT
+				? parseJsonBuffer<{ text?: unknown; conversationId?: unknown; images?: unknown }>(data)
+				: (JSON.parse(new TextDecoder().decode(data)) as {
+						text?: unknown;
+						conversationId?: unknown;
+						images?: unknown;
+					})
+		)
+		.catch((e: unknown) => {
+			console.log(`chat: body read failed: ${e instanceof Error ? e.message : e}`);
+			return null;
+		})) as { text?: unknown; conversationId?: unknown; images?: unknown } | null;
 	const text = typeof body?.text === 'string' ? body.text.trim() : '';
 	const conversationId = typeof body?.conversationId === 'string' ? body.conversationId : '';
-	const images = parseImages(body?.images);
+	const images = await parseImages(body?.images);
 	console.log(
 		`chat: cl=${request.headers.get('content-length') ?? '-'} text=${text.length} ` +
 			`imagesIn=${Array.isArray(body?.images) ? body.images.length : typeof body?.images} ` +

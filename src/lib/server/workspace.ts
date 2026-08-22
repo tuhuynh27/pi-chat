@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { mkdtemp, readdir, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -18,35 +18,36 @@ import { join } from 'node:path';
 const PREFIX = 'pi-web-';
 const MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
-export function createWorkspace(): string {
-	return mkdtempSync(join(tmpdir(), PREFIX));
+export function createWorkspace(): Promise<string> {
+	return mkdtemp(join(tmpdir(), PREFIX));
 }
 
-export function removeWorkspace(dir: string): void {
+export async function removeWorkspace(dir: string): Promise<void> {
 	try {
-		rmSync(dir, { recursive: true, force: true });
+		await rm(dir, { recursive: true, force: true });
 	} catch {
 		/* best-effort */
 	}
 }
 
-export function cleanupOldWorkspaces(keep = new Set<string>()): void {
+export async function cleanupOldWorkspaces(keep = new Set<string>()): Promise<void> {
 	const base = tmpdir();
 	const cutoff = Date.now() - MAX_AGE_MS;
 	let names: string[];
 	try {
-		names = readdirSync(base);
+		names = await readdir(base);
 	} catch {
 		return;
 	}
-	for (const name of names) {
-		if (!name.startsWith(PREFIX)) continue;
-		if (keep.has(name)) continue;
-		const p = join(base, name);
-		try {
-			if (statSync(p).mtimeMs < cutoff) rmSync(p, { recursive: true, force: true });
-		} catch {
-			/* ignore */
-		}
-	}
+	await Promise.all(
+		names.map(async (name) => {
+			if (!name.startsWith(PREFIX) || keep.has(name)) return;
+			const p = join(base, name);
+			try {
+				if ((await stat(p)).mtimeMs < cutoff) await rm(p, { recursive: true, force: true });
+			} catch {
+				/* ignore */
+			}
+		})
+	);
 }

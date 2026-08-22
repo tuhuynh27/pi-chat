@@ -1,7 +1,9 @@
-import { execFileSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { env } from '$env/dynamic/private';
 import type { InlineExtension } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
+import { parseJsonBuffer } from './json-worker';
 
 /**
  * Exa web search + fetch tools for the Pi agent (web build).
@@ -14,9 +16,13 @@ import { Type } from 'typebox';
 const EXA_API_URL = 'https://api.exa.ai';
 const KEYCHAIN_SERVICE = 'pi-exa-api-key';
 const MAX_SEARCH_HIGHLIGHT_CHARS = 1200;
+const MAX_FETCH_CHARACTERS = 50_000;
+const EXA_REQUEST_TIMEOUT_MS = 60_000;
+const MAIN_THREAD_JSON_LIMIT = 256 * 1024;
+const execFileAsync = promisify(execFile);
 
 /** Key resolution: EXA_API_KEY env var, then macOS Keychain. */
-function getApiKey(): string {
+async function getApiKey(): Promise<string> {
 	const envKey = env.EXA_API_KEY;
 	if (envKey) return envKey;
 
@@ -25,11 +31,12 @@ function getApiKey(): string {
 		throw new Error('EXA_API_KEY is not configured: the EXA_API_KEY environment variable is unset.');
 	}
 	try {
-		return execFileSync(
+		const { stdout } = await execFileAsync(
 			'security',
 			['find-generic-password', '-a', account, '-s', KEYCHAIN_SERVICE, '-w'],
-			{ encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }
-		).trim();
+			{ encoding: 'utf8', timeout: 5_000, maxBuffer: 16 * 1024 }
+		);
+		return stdout.trim();
 	} catch {
 		throw new Error(
 			'EXA_API_KEY is not configured. Set the EXA_API_KEY environment variable, or add the key to macOS Keychain under the pi-exa-api-key service.'
@@ -37,22 +44,41 @@ function getApiKey(): string {
 	}
 }
 
-async function exaRequest(path: '/search' | '/contents', body: Record<string, unknown>): Promise<unknown> {
+async function exaRequest(
+	path: '/search' | '/contents',
+	body: Record<string, unknown>,
+	signal?: AbortSignal
+): Promise<unknown> {
+	const timeoutSignal = AbortSignal.timeout(EXA_REQUEST_TIMEOUT_MS);
+	const requestSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
 	const response = await fetch(`${EXA_API_URL}${path}`, {
 		method: 'POST',
 		headers: {
 			'content-type': 'application/json',
-			Authorization: `Bearer ${getApiKey()}`
+			Authorization: `Bearer ${await getApiKey()}`
 		},
-		body: JSON.stringify(body)
+		body: JSON.stringify(body),
+		signal: requestSignal
 	});
 
-	const responseText = await response.text();
-	let data: unknown = responseText;
+	const responseBody = await response.arrayBuffer();
+	const responseBytes = responseBody.byteLength;
+	let responseText = '';
+	let data: unknown;
 	try {
-		data = JSON.parse(responseText);
+		if (responseBytes > MAIN_THREAD_JSON_LIMIT) {
+			data = await parseJsonBuffer(responseBody);
+		} else {
+			responseText = new TextDecoder().decode(responseBody);
+			data = JSON.parse(responseText);
+		}
 	} catch {
-		// Keep non-JSON errors readable.
+		// Keep small non-JSON errors readable without decoding an unbounded body
+		// on the event loop.
+		if (responseBytes <= MAIN_THREAD_JSON_LIMIT && !responseText) {
+			responseText = new TextDecoder().decode(responseBody);
+		}
+		data = responseText;
 	}
 
 	if (!response.ok) {
@@ -193,7 +219,7 @@ export const exaExtension: InlineExtension = {
 					Type.Integer({ minimum: -1, description: 'Maximum cache age in hours. 0 forces a live crawl.' })
 				)
 			}),
-			async execute(_toolCallId, params) {
+			async execute(_toolCallId, params, signal) {
 				const contents: Record<string, unknown> = { highlights: true };
 				if (params.maxAgeHours !== undefined) contents.maxAgeHours = params.maxAgeHours;
 
@@ -205,7 +231,7 @@ export const exaExtension: InlineExtension = {
 						...(params.includeDomains ? { includeDomains: params.includeDomains } : {}),
 						...(params.excludeDomains ? { excludeDomains: params.excludeDomains } : {}),
 						contents
-					})
+					}, signal)
 				);
 			}
 		});
@@ -228,13 +254,13 @@ export const exaExtension: InlineExtension = {
 					Type.Integer({ minimum: -1, description: 'Maximum cache age in hours. 0 forces a live crawl.' })
 				)
 			}),
-			async execute(_toolCallId, params) {
+			async execute(_toolCallId, params, signal) {
 				return fetchResult(
 					await exaRequest('/contents', {
 						urls: params.urls,
-						text: params.maxCharacters === undefined ? true : { maxCharacters: params.maxCharacters },
+						text: { maxCharacters: params.maxCharacters ?? MAX_FETCH_CHARACTERS },
 						...(params.maxAgeHours !== undefined ? { maxAgeHours: params.maxAgeHours } : {})
-					})
+					}, signal)
 				);
 			}
 		});

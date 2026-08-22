@@ -1,6 +1,6 @@
 import type { RequestHandler } from '@sveltejs/kit';
 import { contextUsage, getLiveSession, onceDone, toSseEvents, usageEventData } from '$lib/server/pi';
-import { getConvo } from '$lib/server/store';
+import { getConvo, snapshotConvo } from '$lib/server/store';
 import { coalesceDeltas, createSseWriter } from '$lib/server/sse';
 
 /**
@@ -31,33 +31,52 @@ export const GET: RequestHandler = async ({ url }) => {
 				return;
 			}
 
-			// Snapshot first, subscribe second, with no `await` in between - on a
-			// single-threaded event loop that guarantees no event can slip through
-			// the gap (missed) or land in both places (duplicated).
+			// Snapshot first, subscribe second, with no await in between. Live
+			// events are buffered while the potentially large snapshot streams.
 			const pi = getLiveSession(conversationId);
-			send('sync', {
-				items: convo.items,
+			const convoSnapshot = snapshotConvo(convo);
+			const snapshot = {
+				items: convoSnapshot.items,
 				context: (pi ? contextUsage(pi) : null) ?? convo.lastContext ?? null
-			});
+			};
 
 			if (!pi || !pi.busy) {
-				send('done', { ok: true });
-				close();
+				void writer.sendAsync('sync', snapshot).then(() => {
+					send('done', { ok: true });
+					close();
+				});
 				return;
 			}
 
 			const live = coalesceDeltas(send);
-			unsubscribeAgent = pi.agent.subscribe((e) => {
-				for (const sse of toSseEvents(e)) live.send(sse.event, sse.data);
-				const usage = usageEventData(pi, e);
-				if (usage) live.send('usage', usage);
-			});
-			unsubscribeDone = onceDone(conversationId, (ok) => {
+			const pending: Array<{ event: string; data: unknown }> = [];
+			let syncSent = false;
+			let pendingDone: boolean | null = null;
+			const forward = (event: string, data: unknown) => {
+				if (syncSent) live.send(event, data);
+				else pending.push({ event, data });
+			};
+			const finish = (ok: boolean) => {
 				unsubscribeAgent?.();
 				unsubscribeAgent = null;
 				live.flush();
 				send('done', { ok });
 				close();
+			};
+			unsubscribeAgent = pi.agent.subscribe((e) => {
+				for (const sse of toSseEvents(e)) forward(sse.event, sse.data);
+				const usage = usageEventData(pi, e);
+				if (usage) forward('usage', usage);
+			});
+			unsubscribeDone = onceDone(conversationId, (ok) => {
+				if (syncSent) finish(ok);
+				else pendingDone = ok;
+			});
+			void writer.sendAsync('sync', snapshot).then(() => {
+				syncSent = true;
+				for (const event of pending) live.send(event.event, event.data);
+				pending.length = 0;
+				if (pendingDone !== null) finish(pendingDone);
 			});
 		},
 		cancel() {

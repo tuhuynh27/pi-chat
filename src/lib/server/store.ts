@@ -1,9 +1,10 @@
-import { mkdirSync, readFileSync, readdirSync, rmSync } from 'node:fs';
-import { rename, writeFile } from 'node:fs/promises';
+import { access, mkdir, readdir, rename, rm } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { DEFAULT_MODEL, DEFAULT_PROVIDER, DEFAULT_THINKING } from './default-models';
 import type { ContextInfo } from '../types';
+import { writeJsonFile } from './async-json';
+import { parseJsonFile } from './json-worker';
 
 /**
  * Conversation history store.
@@ -62,16 +63,25 @@ export interface ConvoSummary {
 /** Max stored length of an assistant thinking block. */
 export const THINKING_CAP = 32000;
 
+/** Stable shallow-deep snapshot of the mutable fields used by async writers and responses. */
+export function snapshotConvo(convo: Convo): Convo {
+	return {
+		...convo,
+		items: convo.items.map((item) => ({
+			...item,
+			...(item.images ? { images: item.images.map((image) => ({ ...image })) } : {}),
+			...(item.details ? { details: { ...item.details } } : {})
+		})),
+		...(convo.lastContext ? { lastContext: { ...convo.lastContext } } : {})
+	};
+}
+
 export function dataDir(): string {
-	const dir = process.env.PI_WEB_DATA_DIR || join(homedir(), '.pi-web');
-	mkdirSync(dir, { recursive: true });
-	return dir;
+	return process.env.PI_WEB_DATA_DIR || join(homedir(), '.pi-web');
 }
 
 export function sessionDir(): string {
-	const dir = join(dataDir(), 'sessions');
-	mkdirSync(dir, { recursive: true });
-	return dir;
+	return join(dataDir(), 'sessions');
 }
 
 const FILE = () => join(dataDir(), 'conversations.json');
@@ -89,23 +99,41 @@ let convs = new Map<string, Convo>();
 let lastModel: string | null = null;
 let lastThinking: string | null = null;
 let loaded = false;
+let loadPromise: Promise<void> | null = null;
 let saveTimer: NodeJS.Timeout | null = null;
 let writeChain = Promise.resolve();
 
-function load() {
-	if (loaded) return;
-	loaded = true;
-	try {
-		const raw = readFileSync(FILE(), 'utf8');
-		const data = JSON.parse(raw) as FileShape;
-		if (data.version === 1 && Array.isArray(data.conversations)) {
-			for (const c of data.conversations) convs.set(c.id, c);
-			lastModel = typeof data.lastModel === 'string' ? data.lastModel : null;
-			lastThinking = typeof data.lastThinking === 'string' ? data.lastThinking : null;
-		}
-	} catch {
-		/* first run or corrupt file — start empty */
+/** Load persistent state without doing filesystem work on the event loop. */
+export function ensureStoreLoaded(): Promise<void> {
+	if (loaded) return Promise.resolve();
+	if (!loadPromise) {
+		loadPromise = (async () => {
+			await Promise.all([
+				mkdir(dataDir(), { recursive: true }),
+				mkdir(sessionDir(), { recursive: true })
+			]);
+			try {
+				await access(FILE());
+				const data = await parseJsonFile<FileShape>(FILE());
+				if (data.version === 1 && Array.isArray(data.conversations)) {
+					for (const c of data.conversations) convs.set(c.id, c);
+					lastModel = typeof data.lastModel === 'string' ? data.lastModel : null;
+					lastThinking = typeof data.lastThinking === 'string' ? data.lastThinking : null;
+				}
+			} catch {
+				/* first run or corrupt file - start empty */
+			}
+			loaded = true;
+		})();
+		loadPromise.catch(() => {
+			loadPromise = null;
+		});
 	}
+	return loadPromise;
+}
+
+function assertLoaded(): void {
+	if (!loaded) throw new Error('Conversation store used before initialization.');
 }
 
 function queueWrite(): Promise<void> {
@@ -114,14 +142,15 @@ function queueWrite(): Promise<void> {
 	const tmp = join(dir, `.conversations.${process.pid}.tmp`);
 	const payload: FileShape = {
 		version: 1,
-		conversations: [...convs.values()],
+		// Capture a stable point-in-time view before the cooperative writer
+		// yields and streaming events can mutate the live conversation objects.
+		conversations: [...convs.values()].map(snapshotConvo),
 		lastModel,
 		lastThinking
 	};
-	const serialized = JSON.stringify(payload, null, 1);
 	writeChain = writeChain
 		.then(async () => {
-			await writeFile(tmp, serialized);
+			await writeJsonFile(tmp, payload);
 			await rename(tmp, FILE());
 		})
 		.catch(() => {
@@ -132,7 +161,7 @@ function queueWrite(): Promise<void> {
 
 /** Debounced persist; safe to call on every event. */
 export function scheduleSave() {
-	load();
+	assertLoaded();
 	if (saveTimer) clearTimeout(saveTimer);
 	saveTimer = setTimeout(() => {
 		saveTimer = null;
@@ -141,6 +170,7 @@ export function scheduleSave() {
 }
 
 export async function saveNow(): Promise<void> {
+	await ensureStoreLoaded();
 	if (saveTimer) {
 		clearTimeout(saveTimer);
 		saveTimer = null;
@@ -151,7 +181,7 @@ export async function saveNow(): Promise<void> {
 /* ---------------- CRUD ---------------- */
 
 export function listConversations(): ConvoSummary[] {
-	load();
+	assertLoaded();
 	return [...convs.values()]
 		.map((c) => ({
 			id: c.id,
@@ -165,12 +195,12 @@ export function listConversations(): ConvoSummary[] {
 }
 
 export function getConvo(id: string): Convo | null {
-	load();
+	assertLoaded();
 	return convs.get(id) ?? null;
 }
 
 export function createConvo(opts: { id?: string; title?: string } = {}): Convo {
-	load();
+	assertLoaded();
 	const id =
 		opts.id ??
 		(typeof crypto !== 'undefined' && 'randomUUID' in crypto
@@ -194,16 +224,17 @@ export function createConvo(opts: { id?: string; title?: string } = {}): Convo {
 	return convo;
 }
 
-export function deleteConvo(id: string): boolean {
-	load();
+export async function deleteConvo(id: string): Promise<boolean> {
+	assertLoaded();
 	if (!convs.has(id)) return false;
 	convs.delete(id);
 	// Session file(s) for this conversation.
 	try {
 		const dir = sessionDir();
-		for (const f of readdirSync(dir)) {
-			if (f.endsWith(`_${id}.jsonl`)) rmSync(join(dir, f), { force: true });
-		}
+		const files = await readdir(dir);
+		await Promise.all(
+			files.filter((f) => f.endsWith(`_${id}.jsonl`)).map((f) => rm(join(dir, f), { force: true }))
+		);
 	} catch {
 		/* ignore */
 	}
@@ -212,16 +243,17 @@ export function deleteConvo(id: string): boolean {
 }
 
 /** Remove every conversation and its saved Pi session history. */
-export function deleteAllConvos(): string[] {
-	load();
+export async function deleteAllConvos(): Promise<string[]> {
+	assertLoaded();
 	const ids = [...convs.keys()];
 	if (ids.length === 0) return ids;
 	convs.clear();
 	try {
 		const dir = sessionDir();
-		for (const f of readdirSync(dir)) {
-			if (f.endsWith('.jsonl')) rmSync(join(dir, f), { force: true });
-		}
+		const files = await readdir(dir);
+		await Promise.all(
+			files.filter((f) => f.endsWith('.jsonl')).map((f) => rm(join(dir, f), { force: true }))
+		);
 	} catch {
 		/* ignore */
 	}
@@ -232,30 +264,30 @@ export function deleteAllConvos(): string[] {
 /* ---------------- last model/thinking choice ---------------- */
 
 export function getLastModel(): string | null {
-	load();
+	assertLoaded();
 	return lastModel;
 }
 
 export function setLastModel(id: string | null) {
-	load();
+	assertLoaded();
 	lastModel = id;
 	scheduleSave();
 }
 
 export function getLastThinking(): string | null {
-	load();
+	assertLoaded();
 	return lastThinking;
 }
 
 export function setLastThinking(level: string | null) {
-	load();
+	assertLoaded();
 	lastThinking = level;
 	scheduleSave();
 }
 
 /** Title a conversation from its first user message (once). */
 export function touchTitle(id: string, text: string) {
-	load();
+	assertLoaded();
 	const c = convs.get(id);
 	if (!c || c.title !== 'New chat') return;
 	const line = text
@@ -269,7 +301,7 @@ export function touchTitle(id: string, text: string) {
 
 /** Apply an update and optionally schedule persistence. Streaming runs save once at completion. */
 export function applyEvent(id: string, apply: (c: Convo) => boolean | void, persist = true) {
-	load();
+	assertLoaded();
 	const c = convs.get(id);
 	if (!c) return;
 	if (apply(c) === false) return;
