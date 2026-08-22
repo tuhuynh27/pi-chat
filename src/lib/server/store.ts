@@ -5,11 +5,13 @@ import { DEFAULT_MODEL, DEFAULT_PROVIDER, DEFAULT_THINKING } from './default-mod
 import type { ContextInfo } from '../types';
 import { writeJsonFile } from './async-json';
 import { parseJsonFile } from './json-worker';
+import { ShareRegistry, type StoredShare } from './share-registry';
 
 /**
  * Conversation history store.
  *
  * - display history (items) lives in `<dataDir>/conversations.json`
+ * - one share token per conversation lives in the same file
  * - LLM context lives in Pi session files `<dataDir>/sessions/*_<id>.jsonl`
  *   (created by SessionManager; restored on restart)
  *
@@ -89,6 +91,8 @@ const FILE = () => join(dataDir(), 'conversations.json');
 interface FileShape {
 	version: 1;
 	conversations: Convo[];
+	/** Durable one-to-one conversation share pointers. */
+	shares?: StoredShare[];
 	/** Last model chosen in the UI; new conversations inherit it. */
 	lastModel?: string | null;
 	/** Last thinking level chosen in the UI; new conversations inherit it. */
@@ -96,6 +100,7 @@ interface FileShape {
 }
 
 let convs = new Map<string, Convo>();
+const shares = new ShareRegistry();
 let lastModel: string | null = null;
 let lastThinking: string | null = null;
 let loaded = false;
@@ -117,6 +122,7 @@ export function ensureStoreLoaded(): Promise<void> {
 				const data = await parseJsonFile<FileShape>(FILE());
 				if (data.version === 1 && Array.isArray(data.conversations)) {
 					for (const c of data.conversations) convs.set(c.id, c);
+					shares.load(data.shares, (id) => convs.has(id));
 					lastModel = typeof data.lastModel === 'string' ? data.lastModel : null;
 					lastThinking = typeof data.lastThinking === 'string' ? data.lastThinking : null;
 				}
@@ -145,6 +151,7 @@ function queueWrite(): Promise<void> {
 		// Capture a stable point-in-time view before the cooperative writer
 		// yields and streaming events can mutate the live conversation objects.
 		conversations: [...convs.values()].map(snapshotConvo),
+		shares: shares.toJSON(),
 		lastModel,
 		lastThinking
 	};
@@ -199,6 +206,22 @@ export function getConvo(id: string): Convo | null {
 	return convs.get(id) ?? null;
 }
 
+/** Return the existing durable share token, or create exactly one for this conversation. */
+export function getOrCreateShareToken(convoId: string, createToken: () => string): string | null {
+	assertLoaded();
+	if (!convs.has(convoId)) return null;
+	const result = shares.getOrCreate(convoId, createToken);
+	if (result.created) scheduleSave();
+	return result.token;
+}
+
+/** Resolve a durable share token to its live conversation. */
+export function getConvoByShareToken(token: string): Convo | null {
+	assertLoaded();
+	const convoId = shares.conversationIdFor(token);
+	return convoId ? (convs.get(convoId) ?? null) : null;
+}
+
 export function createConvo(opts: { id?: string; title?: string } = {}): Convo {
 	assertLoaded();
 	const id =
@@ -228,6 +251,7 @@ export async function deleteConvo(id: string): Promise<boolean> {
 	assertLoaded();
 	if (!convs.has(id)) return false;
 	convs.delete(id);
+	shares.deleteConversation(id);
 	// Session file(s) for this conversation.
 	try {
 		const dir = sessionDir();
@@ -248,6 +272,7 @@ export async function deleteAllConvos(): Promise<string[]> {
 	const ids = [...convs.keys()];
 	if (ids.length === 0) return ids;
 	convs.clear();
+	shares.clear();
 	try {
 		const dir = sessionDir();
 		const files = await readdir(dir);

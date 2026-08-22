@@ -90,9 +90,9 @@
 		<div class="share-body">
 			<h2 id="share-title">Share this conversation</h2>
 			<p id="share-message">
-				Anyone with this link can view the conversation as it is right now. It is read-only —
-				viewers can't send messages or change anything. The link stops working if you delete
-				the chat or restart the server.
+				Anyone with this link can view the conversation. It is read-only - viewers can't send
+				messages or change anything. The same link is reused and stops working if you delete
+				the chat.
 			</p>
 			<div class="share-url-row">
 				<input
