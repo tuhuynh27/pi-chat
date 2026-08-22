@@ -74,7 +74,7 @@
 		<div class="share-header-inner">
 			<a class="share-brand" href="/" aria-label="Open Keva Chat">
 				<svg class="share-logo" viewBox="0 0 32 32" aria-hidden="true">
-					<rect x="1" y="1" width="30" height="30" rx="9" />
+					<rect x="1" y="1" width="30" height="30" />
 					<path d="M10.5 8.5v15M21.8 8.5 10.7 19.2M15.7 14.4l6.1 9.1" />
 				</svg>
 				<span>Keva Chat</span>
@@ -83,7 +83,7 @@
 			<div class="share-actions">
 				<span class="shared-badge">
 					<svg viewBox="0 0 16 16" aria-hidden="true">
-						<rect x="3.2" y="7" width="9.6" height="7" rx="1.8" />
+						<rect x="3.2" y="7" width="9.6" height="7" />
 						<path d="M5.4 7V5.2a2.6 2.6 0 0 1 5.2 0V7" />
 					</svg>
 					<span>Shared <span class="badge-detail">read-only</span></span>
@@ -128,7 +128,7 @@
 		{:else if status === 'loading'}
 			<div class="status-panel loading" role="status" aria-live="polite">
 				<svg class="loading-logo" viewBox="0 0 32 32" aria-hidden="true">
-					<rect x="1" y="1" width="30" height="30" rx="9" />
+					<rect x="1" y="1" width="30" height="30" />
 					<path d="M10.5 8.5v15M21.8 8.5 10.7 19.2M15.7 14.4l6.1 9.1" />
 				</svg>
 				<span>Opening shared conversation</span>
@@ -269,7 +269,6 @@
 		height: 34px;
 		padding: 0 11px;
 		border: 1px solid var(--line);
-		border-radius: 999px !important;
 		background: var(--soft);
 		color: var(--muted);
 		font-size: 11px;
@@ -302,7 +301,6 @@
 		height: 36px;
 		padding: 0 11px;
 		border: 1px solid var(--line);
-		border-radius: 8px !important;
 		background: var(--bg);
 		color: var(--fg);
 		font-size: 12px;
@@ -388,7 +386,6 @@
 	.meta-dot {
 		width: 3px;
 		height: 3px;
-		border-radius: 50% !important;
 		background: currentColor;
 	}
 
@@ -421,7 +418,6 @@
 		max-width: min(82%, 620px);
 		padding: 11px 15px;
 		border: 1px solid color-mix(in srgb, var(--fg) 5%, var(--line));
-		border-radius: 14px 14px 4px 14px !important;
 		background: var(--soft);
 		font-size: 14.5px;
 		line-height: 1.6;
@@ -441,7 +437,6 @@
 		place-items: center;
 		width: 30px;
 		height: 30px;
-		border-radius: 9px !important;
 		background: var(--fg);
 		color: var(--bg);
 		font-size: 13px;
@@ -490,7 +485,6 @@
 		aspect-ratio: 1;
 		object-fit: cover;
 		border: 1px solid var(--line);
-		border-radius: 10px !important;
 		background: var(--soft);
 	}
 
@@ -511,7 +505,6 @@
 		height: 58px;
 		margin-bottom: 26px;
 		border: 1px solid var(--line);
-		border-radius: 16px !important;
 		background: var(--soft);
 		color: var(--muted);
 	}
@@ -551,7 +544,6 @@
 		height: 42px;
 		margin-top: 24px;
 		padding: 0 17px;
-		border-radius: 8px !important;
 		background: var(--fg);
 		color: var(--bg);
 		font-size: 13px;
@@ -643,7 +635,6 @@
 		.assistant-mark {
 			width: 27px;
 			height: 27px;
-			border-radius: 8px !important;
 			font-size: 12px;
 		}
 

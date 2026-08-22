@@ -42,7 +42,13 @@
 
 <aside class="sidebar" class:open={open}>
 	<div class="side-head">
-		<span class="brand"><span class="logo">K</span> Keva Chat</span>
+		<div class="brand" aria-label="Keva Chat">
+			<svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+				<rect x="1" y="1" width="30" height="30" />
+				<path d="M10.5 8.5v15M21.8 8.5 10.7 19.2M15.7 14.4l6.1 9.1" />
+			</svg>
+			<span class="brand-name">Keva Chat</span>
+		</div>
 		<button class="icon-btn" onclick={onClose} aria-label="Close sidebar">
 			<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
 				<path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" fill="none" />
@@ -61,6 +67,7 @@
 		{creating ? 'Creating chat' : 'New chat'}
 	</button>
 
+	<div class="list-label">Recent conversations</div>
 	<nav class="list" aria-label="Conversations">
 		{#each conversations as c (c.id)}
 			<div

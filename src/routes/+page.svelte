@@ -1119,11 +1119,14 @@
 			<div class="thread" class:busy class:loading={conversationLoading}>
 				{#if ready && items.length === 0}
 					<div class="empty">
-						<div class="mark" aria-hidden="true">K</div>
-						<div class="big">What's moving the market?</div>
-						<div class="sub">
-							Ask about a ticker, sector, or headline. Keva pulls the latest data and news, then breaks down what actually matters.
+						<div class="empty-kicker">
+							<span class="mark" aria-hidden="true">K</span>
+							<span>Live market intelligence</span>
 						</div>
+						<h1 class="big">What's moving the market?</h1>
+						<p class="sub">
+							Ask about a ticker, sector, or headline. Keva pulls the latest data and news, then breaks down what actually matters.
+						</p>
 						<div class="sugs">
 							{#each SUGGESTIONS as s (s.text)}
 								<button class="sug" onclick={() => send(s.text)} disabled={busy}>
@@ -1143,6 +1146,7 @@
 					{#each items as item, index (item.id)}
 						{#if item.role === 'user'}
 							<div class="msg user" transition:fade={fadeIn}>
+								<span class="turn-label">Prompt</span>
 								{#if item.images?.length}
 									<div class="msg-images">
 										{#each item.images as img, i (i)}
@@ -1168,17 +1172,21 @@
 							{@const copyText = copyTexts[index] ?? ''}
 							{#if item.text || item.thinking || item.streaming}
 								<div class="msg assistant" class:streaming={item.streaming} transition:fade={fadeIn}>
-									<MessageItem item={item} />
-									{#if copyText}
-										<div class="copy-row">
-											<CopyMessage text={copyText} />
-											<RetryMessage onRetry={() => retry(index)} disabled={busy} />
-										</div>
-									{/if}
+									<div class="assistant-mark" aria-hidden="true">K</div>
+									<div class="assistant-content">
+										<span class="turn-label">Keva</span>
+										<MessageItem item={item} />
+										{#if copyText}
+											<div class="copy-row">
+												<CopyMessage text={copyText} />
+												<RetryMessage onRetry={() => retry(index)} disabled={busy} />
+											</div>
+										{/if}
+									</div>
 								</div>
 							{/if}
 						{:else if item.role === 'tool'}
-							<div transition:fade={fadeIn}>
+							<div class="tool-turn" transition:fade={fadeIn}>
 								{#if isWebTool(item)}
 									<WebTool item={item} />
 								{:else}
@@ -1198,7 +1206,11 @@
 					{/each}
 					{#if responsePending}
 						<div class="msg assistant streaming" transition:fade={fadeIn}>
-							<span class="waiting" role="status" aria-live="polite" aria-label="Waiting for response"><i>·</i><i>·</i><i>·</i></span>
+							<div class="assistant-mark" aria-hidden="true">K</div>
+							<div class="assistant-content">
+								<span class="turn-label">Keva</span>
+								<span class="waiting" role="status" aria-live="polite" aria-label="Waiting for response"><i>·</i><i>·</i><i>·</i></span>
+							</div>
 						</div>
 					{/if}
 					{#if activeId && modelSwapCountdowns[activeId] !== undefined}
