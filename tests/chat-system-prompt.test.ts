@@ -29,6 +29,7 @@ test('covers the intended browsing decision cases', () => {
 		['high-stakes accuracy', 'when accuracy is high-stakes'],
 		['uncertain facts', 'when a fact is uncertain or niche'],
 		['conditional deep fetch', 'when search excerpts are insufficient'],
+		['bounded fetch', 'Fetch only the one to three most relevant pages'],
 		['self-contained tasks', 'Do not browse for self-contained reasoning'],
 		['provided-text summarization', 'summarization of user-provided text']
 	] as const;
