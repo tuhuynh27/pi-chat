@@ -23,6 +23,17 @@ function defaultThinkingFromEnv(): DefaultThinkingLevel {
 
 export const DEFAULT_THINKING = defaultThinkingFromEnv();
 
+/** Map Pi's seven UI levels onto the three levels accepted by Qwen's chat template. */
+export const QWEN_THINKING_LEVEL_MAP = {
+	off: 'off',
+	minimal: 'low',
+	low: 'low',
+	medium: 'medium',
+	high: 'xhigh',
+	xhigh: 'xhigh',
+	max: 'xhigh'
+} as const;
+
 export const DEFAULT_MODELS_CONFIG = {
 	providers: {
 		keva: {
@@ -33,13 +44,20 @@ export const DEFAULT_MODELS_CONFIG = {
 			compat: {
 				supportsDeveloperRole: false,
 				supportsReasoningEffort: true,
-				maxTokensField: 'max_tokens'
+				maxTokensField: 'max_tokens',
+				thinkingFormat: 'chat-template',
+				chatTemplateKwargs: {
+					enable_thinking: { $var: 'thinking.enabled' },
+					preserve_thinking: true,
+					reasoning_effort: { $var: 'thinking.effort', omitWhenOff: true }
+				}
 			},
 			models: [
 				{
 					id: 'qwen3.6-35b-a3b',
 					name: 'Qwen 3.6 35B A3B',
 					reasoning: true,
+					thinkingLevelMap: QWEN_THINKING_LEVEL_MAP,
 					// Runs with --language-model-only (vision off), see vllm-service
 					input: ['text'],
 					contextWindow: 262144,
@@ -55,6 +73,7 @@ export const DEFAULT_MODELS_CONFIG = {
 					id: 'qwen3.8-27b',
 					name: 'Qwen 3.8 27B',
 					reasoning: true,
+					thinkingLevelMap: QWEN_THINKING_LEVEL_MAP,
 					input: ['text', 'image'],
 					// 130048, not 131072: vision needs ~1K KV headroom (vllm-service)
 					contextWindow: 130048,

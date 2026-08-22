@@ -56,7 +56,7 @@ For a custom provider catalog, set these optional variables:
 - `PI_WEB_MODELS_JSON`: the complete, one-line JSON content that would normally be in Pi's `models.json`. API keys should reference another environment variable, for example `"apiKey":"$MY_LLM_API_KEY"`.
 - `PI_WEB_DEFAULT_PROVIDER`: initial provider for a fresh data volume. Defaults to `keva`.
 - `PI_WEB_DEFAULT_MODEL`: initial model for a fresh data volume. Defaults to `qwen3.6-35b-a3b`.
-- `PI_WEB_DEFAULT_THINKING`: initial thinking level. Defaults to `low`.
+- `PI_WEB_DEFAULT_THINKING`: initial thinking level. Defaults to `high`.
 
 The selected model and thinking level remain application state in the data volume, so existing user choices survive restarts and take precedence over these initial defaults.
 
