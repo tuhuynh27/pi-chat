@@ -13,7 +13,7 @@
 	}: {
 		label: string;
 		value: string;
-		options: { value: string; label: string }[];
+		options: { value: string; label: string; compactLabel?: string }[];
 		disabled?: boolean;
 		onChange: (value: string) => void;
 	} = $props();
@@ -102,7 +102,8 @@
 		onclick={() => setOpen(!open)}
 		onkeydown={onKey}
 	>
-		<span class="dd-label">{current?.label ?? label}</span>
+		<span class="dd-label dd-label-full">{current?.label ?? label}</span>
+		<span class="dd-label dd-label-compact">{current?.compactLabel ?? current?.label ?? label}</span>
 		<svg class="chev" width="9" height="6" viewBox="0 0 10 6" aria-hidden="true">
 			<path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.5" fill="none" />
 		</svg>

@@ -33,6 +33,13 @@
 	} = $props();
 
 	const levels = ['off', 'minimal', 'low', 'medium', 'high'];
+	const compactThinkingLabels: Record<string, string> = {
+		off: 'Off',
+		minimal: 'Min',
+		low: 'Low',
+		medium: 'Med',
+		high: 'High'
+	};
 	const modelOptions = $derived(models.map((item) => ({ value: item.id, label: item.name })));
 	const visibleModelOptions = $derived(
 		modelOptions.length > 0
@@ -71,7 +78,11 @@
 			<Dropdown
 				label="Thinking level"
 				value={thinking}
-				options={levels.map((l) => ({ value: l, label: `think: ${l}` }))}
+				options={levels.map((l) => ({
+					value: l,
+					label: `think: ${l}`,
+					compactLabel: compactThinkingLabels[l]
+				}))}
 				disabled={busy}
 				onChange={onThinking}
 			/>
