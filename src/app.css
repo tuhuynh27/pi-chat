@@ -781,36 +781,6 @@ select {
 	line-height: 1.6;
 }
 
-.msg.assistant {
-	display: grid;
-	grid-template-columns: 30px minmax(0, 1fr);
-	align-items: start;
-	gap: 12px;
-}
-
-.assistant-mark {
-	display: grid;
-	place-items: center;
-	width: 30px;
-	height: 30px;
-	background: var(--fg);
-	color: var(--bg);
-	font-size: 13px;
-	font-weight: 700;
-	line-height: 1;
-}
-
-.assistant-content {
-	min-width: 0;
-	padding-top: 2px;
-}
-
-.tool-turn,
-.model-swap,
-.msg.error {
-	margin-left: 42px;
-}
-
 .msg-images {
 	display: flex;
 	flex-wrap: wrap;
@@ -896,10 +866,6 @@ select {
 	gap: 2px;
 	min-height: 24px;
 	margin-top: 6px;
-}
-
-.msg.assistant .copy-row {
-	justify-content: flex-start;
 }
 
 .copy-message,
@@ -1291,7 +1257,7 @@ select {
 
 .model-swap {
 	width: min(340px, 100%);
-	margin: 2px 0 18px 42px;
+	margin: 2px 0 18px;
 	border: 1px solid var(--line);
 	padding: 10px 11px 9px;
 	color: var(--muted);
@@ -2182,23 +2148,6 @@ select {
 	.msg.user .bubble,
 	.msg-images {
 		max-width: 88%;
-	}
-
-	.msg.assistant {
-		grid-template-columns: 27px minmax(0, 1fr);
-		gap: 10px;
-	}
-
-	.assistant-mark {
-		width: 27px;
-		height: 27px;
-		font-size: 12px;
-	}
-
-	.tool-turn,
-	.model-swap,
-	.msg.error {
-		margin-left: 37px;
 	}
 
 	.composer-wrap {

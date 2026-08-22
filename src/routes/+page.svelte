@@ -1172,17 +1172,13 @@
 							{@const copyText = copyTexts[index] ?? ''}
 							{#if item.text || item.thinking || item.streaming}
 								<div class="msg assistant" class:streaming={item.streaming} transition:fade={fadeIn}>
-									<div class="assistant-mark" aria-hidden="true">K</div>
-									<div class="assistant-content">
-										<span class="turn-label">Keva</span>
-										<MessageItem item={item} />
-										{#if copyText}
-											<div class="copy-row">
-												<CopyMessage text={copyText} />
-												<RetryMessage onRetry={() => retry(index)} disabled={busy} />
-											</div>
-										{/if}
-									</div>
+									<MessageItem item={item} />
+									{#if copyText}
+										<div class="copy-row">
+											<CopyMessage text={copyText} />
+											<RetryMessage onRetry={() => retry(index)} disabled={busy} />
+										</div>
+									{/if}
 								</div>
 							{/if}
 						{:else if item.role === 'tool'}
@@ -1206,11 +1202,7 @@
 					{/each}
 					{#if responsePending}
 						<div class="msg assistant streaming" transition:fade={fadeIn}>
-							<div class="assistant-mark" aria-hidden="true">K</div>
-							<div class="assistant-content">
-								<span class="turn-label">Keva</span>
-								<span class="waiting" role="status" aria-live="polite" aria-label="Waiting for response"><i>·</i><i>·</i><i>·</i></span>
-							</div>
+							<span class="waiting" role="status" aria-live="polite" aria-label="Waiting for response"><i>·</i><i>·</i><i>·</i></span>
 						</div>
 					{/if}
 					{#if activeId && modelSwapCountdowns[activeId] !== undefined}
