@@ -5,6 +5,9 @@
 		open,
 		conversations,
 		activeId,
+		loading = false,
+		loadingId = null,
+		creating = false,
 		onNew,
 		onSelect,
 		onDelete,
@@ -14,6 +17,9 @@
 		open: boolean;
 		conversations: ConvoSummary[];
 		activeId: string | null;
+		loading?: boolean;
+		loadingId?: string | null;
+		creating?: boolean;
 		onNew: () => void;
 		onSelect: (id: string) => void;
 		onDelete: (id: string) => void;
@@ -44,11 +50,15 @@
 		</button>
 	</div>
 
-	<button class="new" onclick={onNew}>
-		<svg width="11" height="11" viewBox="0 0 11 11" aria-hidden="true">
-			<path d="M5.5 1v9M1 5.5h9" stroke="currentColor" stroke-width="1.5" fill="none" />
-		</svg>
-		New chat
+	<button class="new" onclick={onNew} disabled={loading} aria-busy={creating}>
+		{#if creating}
+			<span class="loading-pip" aria-hidden="true"></span>
+		{:else}
+			<svg width="11" height="11" viewBox="0 0 11 11" aria-hidden="true">
+				<path d="M5.5 1v9M1 5.5h9" stroke="currentColor" stroke-width="1.5" fill="none" />
+			</svg>
+		{/if}
+		{creating ? 'Creating chat' : 'New chat'}
 	</button>
 
 	<nav class="list" aria-label="Conversations">
@@ -56,19 +66,25 @@
 			<div
 				class="row"
 				class:active={c.id === activeId}
+				class:loading={c.id === loadingId}
+				class:disabled={loading}
 				role="button"
-				tabindex="0"
-				onclick={() => onSelect(c.id)}
+				tabindex={loading ? -1 : 0}
+				aria-disabled={loading}
+				aria-busy={c.id === loadingId}
+				onclick={() => !loading && onSelect(c.id)}
 				onkeydown={(e) => {
-					if (e.key === 'Enter' || e.key === ' ') {
+					if (!loading && (e.key === 'Enter' || e.key === ' ')) {
 						e.preventDefault();
 						onSelect(c.id);
 					}
 				}}
 			>
 				<span class="title">{c.title}</span>
-				<span class="meta">{c.busy ? '…' : timeAgo(c.updatedAt)}</span>
-				<button class="del" aria-label="Delete conversation"
+				<span class="meta">
+					{#if c.id === loadingId}<span class="loading-pip" aria-hidden="true"></span>{:else}{c.busy ? '…' : timeAgo(c.updatedAt)}{/if}
+				</span>
+				<button class="del" aria-label="Delete conversation" disabled={loading}
 					onclick={(e) => {
 						e.stopPropagation();
 						onDelete(c.id);

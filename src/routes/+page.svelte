@@ -56,9 +56,17 @@
 	let sidebarOpen = $state(typeof window !== 'undefined' && window.matchMedia('(min-width: 720px)').matches);
 	let modelsLoaded = $state(false);
 	let ready = $state(false);
+	let loadingConversationId = $state<string | null>(null);
+	let creatingConversation = $state(false);
 	let authState = $state<'checking' | 'required' | 'authenticated'>('checking');
 	let authConfigured = $state<boolean | null>(null);
 	let busy = $derived(activeId !== null && busyIds.includes(activeId));
+	let conversationLoading = $derived(loadingConversationId !== null || creatingConversation);
+	let responsePending = $derived.by(() => {
+		if (!busy || items.length === 0) return false;
+		const last = items[items.length - 1];
+		return last.role === 'user' || (last.role === 'tool' && last.status !== 'running');
+	});
 	let appInteractive = $derived(authState === 'authenticated' && ready);
 	let showLoadingScreen = $derived(authState === 'checking' || (authState === 'authenticated' && !ready));
 	const MODEL_SWAP_TRIGGER_MS = 5_000;
@@ -487,48 +495,60 @@
 	}
 
 	async function select(id: string, closeSidebar = true) {
+		if (conversationLoading) return;
 		if (id === activeId) {
 			if (closeSidebar) sidebarOpen = false;
 			return;
 		}
-		await cleanupIfEmpty();
-		const c = await fetchConvo(id);
-		if (!c) return;
-		showConvo(c);
-		if (c.busy && !localRuns.has(c.id)) void attachToRun(c.id);
-		draft = '';
-		if (closeSidebar) sidebarOpen = false;
-		pinBottom();
+		loadingConversationId = id;
+		try {
+			await cleanupIfEmpty();
+			const c = await fetchConvo(id);
+			if (!c) return;
+			showConvo(c);
+			if (c.busy && !localRuns.has(c.id)) void attachToRun(c.id);
+			draft = '';
+			if (closeSidebar) sidebarOpen = false;
+			pinBottom();
+		} finally {
+			loadingConversationId = null;
+		}
 	}
 
 	async function newChat(closeSidebar = true) {
+		if (conversationLoading) return;
 		// Already on an untouched empty chat - avoid piling up empty history entries.
 		if (activeId !== null && items.length === 0 && !draft.trim()) {
 			if (closeSidebar) sidebarOpen = false;
 			return;
 		}
-		await cleanupIfEmpty();
-		const res = await apiFetch('/api/conversations', {
-			method: 'POST',
-			headers: { 'content-type': 'application/json' },
-			body: '{}'
-		}).catch(() => null);
-		if (!res?.ok) return;
-		const c = (await res.json().catch(() => null)) as ConvoInfo | null;
-		if (!c) return;
-		smoother.reset();
-		speed.reset();
-		activeId = c.id;
-		items = [];
-		draft = '';
-		model = c.model ?? models[0]?.id ?? '';
-		thinking = c.thinking;
-		curAsst = null;
-		markBusy(c.id, false);
-		lastError = '';
-		if (closeSidebar) sidebarOpen = false;
-		freshEmptyId = c.id;
-		await loadConvos();
+		creatingConversation = true;
+		try {
+			await cleanupIfEmpty();
+			const res = await apiFetch('/api/conversations', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: '{}'
+			}).catch(() => null);
+			if (!res?.ok) return;
+			const c = (await res.json().catch(() => null)) as ConvoInfo | null;
+			if (!c) return;
+			smoother.reset();
+			speed.reset();
+			activeId = c.id;
+			items = [];
+			draft = '';
+			model = c.model ?? models[0]?.id ?? '';
+			thinking = c.thinking;
+			curAsst = null;
+			markBusy(c.id, false);
+			lastError = '';
+			if (closeSidebar) sidebarOpen = false;
+			freshEmptyId = c.id;
+			await loadConvos();
+		} finally {
+			creatingConversation = false;
+		}
 	}
 
 	function requestDelete(id: string) {
@@ -1057,6 +1077,9 @@
 		open={sidebarOpen}
 		conversations={convos}
 		activeId={activeId}
+		loading={conversationLoading}
+		loadingId={loadingConversationId}
+		creating={creatingConversation}
 		onNew={newChat}
 		onSelect={select}
 		onDelete={requestDelete}
@@ -1069,29 +1092,31 @@
 			{model}
 			{models}
 			{thinking}
-			{busy}
+			busy={busy || conversationLoading}
 			{theme}
 			onModel={changeModel}
 			onThinking={changeThinking}
 			onNew={newChat}
 			onShare={share}
-			shareDisabled={busy || activeId === null}
+			shareDisabled={busy || conversationLoading || activeId === null}
 			onMenu={() => (sidebarOpen = !sidebarOpen)}
 			onLogout={requestLogout}
 			onToggleTheme={toggleTheme}
 		/>
 
-		<div
-			class="main"
-			bind:this={scrollEl}
-			role="region"
-			aria-label="Conversation"
-			onscroll={onScroll}
-			onwheel={onWheel}
-			ontouchstart={onTouchStart}
-			ontouchmove={onTouchMove}
-		>
-			<div class="thread" class:busy>
+		<div class="conversation-stage">
+			<div
+				class="main"
+				bind:this={scrollEl}
+				role="region"
+				aria-label="Conversation"
+				aria-busy={conversationLoading}
+				onscroll={onScroll}
+				onwheel={onWheel}
+				ontouchstart={onTouchStart}
+				ontouchmove={onTouchMove}
+			>
+			<div class="thread" class:busy class:loading={conversationLoading}>
 				{#if ready && items.length === 0}
 					<div class="empty">
 						<div class="mark" aria-hidden="true">K</div>
@@ -1171,6 +1196,11 @@
 							</div>
 						{/if}
 					{/each}
+					{#if responsePending}
+						<div class="msg assistant streaming" transition:fade={fadeIn}>
+							<span class="waiting" role="status" aria-live="polite" aria-label="Waiting for response"><i>·</i><i>·</i><i>·</i></span>
+						</div>
+					{/if}
 					{#if activeId && modelSwapCountdowns[activeId] !== undefined}
 						{@const seconds = modelSwapCountdowns[activeId]}
 						<div class="model-swap" aria-live="off" aria-label={`Preparing a fallback model. ${formatCountdown(seconds)} remaining.`}>
@@ -1186,10 +1216,17 @@
 					{/if}
 				{/if}
 			</div>
+			</div>
+			{#if conversationLoading}
+				<div class="conversation-loading" role="status" aria-live="polite">
+					<span class="loading-pip" aria-hidden="true"></span>
+					{creatingConversation ? 'Creating conversation' : 'Loading conversation'}
+				</div>
+			{/if}
 		</div>
 
 		{#key activeId}
-			<Composer bind:text={draft} {busy} stats={speedStats} onSend={send} onStop={stop} />
+			<Composer bind:text={draft} {busy} disabled={conversationLoading} stats={speedStats} onSend={send} onStop={stop} />
 		{/key}
 	</div>
 </div>

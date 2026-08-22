@@ -10,12 +10,14 @@
 
 	let {
 		busy,
+		disabled = false,
 		onSend,
 		onStop,
 		text = $bindable(''),
 		stats = null
 	}: {
 		busy: boolean;
+		disabled?: boolean;
 		onSend: (text: string, images: ImageAttachment[]) => void;
 		onStop: () => void;
 		text?: string;
@@ -66,6 +68,7 @@
 	}
 
 	async function addFiles(files: Iterable<File>) {
+		if (disabled) return;
 		const incoming = [...files].filter((f) => f.type.startsWith('image/'));
 		if (!incoming.length) return;
 		const room = MAX_IMAGES - attachments.length;
@@ -112,13 +115,13 @@
 	function onDrop(e: DragEvent) {
 		e.preventDefault();
 		dragOver = false;
-		if (e.dataTransfer?.files.length) void addFiles(e.dataTransfer.files);
+		if (!disabled && e.dataTransfer?.files.length) void addFiles(e.dataTransfer.files);
 	}
 
 	function submit() {
 		const t = text.trim();
 		const ready = attachments.filter((a) => !a.loading);
-		if ((!t && ready.length === 0) || busy || attachments.some((a) => a.loading)) return;
+		if ((!t && ready.length === 0) || busy || disabled || attachments.some((a) => a.loading)) return;
 		const images: ImageAttachment[] = ready.map((a) => ({
 			mimeType: a.mimeType,
 			data: a.dataUrl.slice(a.dataUrl.indexOf(',') + 1)
@@ -135,9 +138,10 @@
 	<form
 		class="composer"
 		class:drag={dragOver}
+		class:disabled
 		ondragover={(e) => {
 			e.preventDefault();
-			dragOver = true;
+			if (!disabled) dragOver = true;
 		}}
 		ondragleave={() => (dragOver = false)}
 		ondrop={onDrop}
@@ -169,6 +173,7 @@
 				type="file"
 				accept="image/*"
 				multiple
+				disabled={disabled}
 				class="file-input"
 				onchange={(e) => {
 					const files = (e.currentTarget as HTMLInputElement).files;
@@ -179,7 +184,7 @@
 			<button
 				type="button"
 				class="attach"
-				disabled={attachments.length >= MAX_IMAGES}
+				disabled={disabled || attachments.length >= MAX_IMAGES}
 				onclick={() => fileInput.click()}
 				aria-label="Attach images"
 			>
@@ -200,6 +205,7 @@
 				placeholder="Message pi…"
 				autocapitalize="off"
 				autocomplete="off"
+				disabled={disabled}
 				oninput={autoresize}
 				onpaste={onPaste}
 				onkeydown={(e) => {
@@ -219,7 +225,7 @@
 				<button
 					type="submit"
 					class="send"
-					disabled={(!text.trim() && attachments.length === 0) || attachments.some((a) => a.loading)}
+					disabled={disabled || (!text.trim() && attachments.length === 0) || attachments.some((a) => a.loading)}
 					aria-label="Send"
 				>
 					<svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
