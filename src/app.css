@@ -5,6 +5,9 @@
 	--faint: #a3a3aa;
 	--line: #e7e7ea;
 	--soft: #f5f5f6;
+	--control-bg: #ececef;
+	--control-hover: #e2e2e6;
+	--control-menu-bg: #ffffff;
 	--accent: #141416;
 	--accent-fg: #ffffff;
 	--error: #d92d20;
@@ -21,6 +24,9 @@
 		--faint: #62626a;
 		--line: #26262a;
 		--soft: #17171a;
+		--control-bg: #242428;
+		--control-hover: #2e2e33;
+		--control-menu-bg: #1b1b1f;
 		--accent: #ededf0;
 		--accent-fg: #0d0d0f;
 		--error: #ff7367;
@@ -36,6 +42,9 @@
 	--faint: #62626a;
 	--line: #26262a;
 	--soft: #17171a;
+	--control-bg: #242428;
+	--control-hover: #2e2e33;
+	--control-menu-bg: #1b1b1f;
 	--accent: #ededf0;
 	--accent-fg: #0d0d0f;
 	--error: #ff7367;
@@ -543,7 +552,8 @@ select {
 	.header .dd-trigger {
 		width: 100%;
 		justify-content: space-between;
-		background: var(--bg);
+		background-color: var(--control-bg);
+		background-image: none;
 	}
 
 	.context-controls .dd:first-child .dd-menu {
@@ -576,7 +586,8 @@ select {
 	align-items: center;
 	gap: 7px;
 	border: 1px solid var(--line);
-	background: var(--bg);
+	background-color: var(--control-bg);
+	background-image: none;
 	color: var(--fg);
 	height: 36px;
 	padding: 6px 10px;
@@ -588,6 +599,7 @@ select {
 
 .dd-trigger:hover:not(:disabled) {
 	border-color: var(--faint);
+	background-color: var(--control-hover);
 }
 
 .dd-trigger:focus-visible {
@@ -596,7 +608,8 @@ select {
 }
 
 .dd-trigger:disabled {
-	background: var(--soft);
+	background-color: var(--control-bg);
+	background-image: none;
 	color: var(--muted);
 	opacity: 1;
 	cursor: default;
@@ -632,7 +645,8 @@ select {
 	max-width: min(320px, calc(100vw - 24px));
 	max-height: min(320px, 60vh);
 	overflow-y: auto;
-	background: var(--bg);
+	background-color: var(--control-menu-bg);
+	background-image: none;
 	border: 1px solid var(--line);
 	padding: 4px;
 	scrollbar-width: thin;
@@ -657,7 +671,8 @@ select {
 	gap: 8px;
 	width: 100%;
 	border: none;
-	background: none;
+	background-color: var(--control-menu-bg);
+	background-image: none;
 	color: var(--fg);
 	padding: 7px 8px;
 	font-size: 13px;
@@ -667,7 +682,7 @@ select {
 }
 
 .dd-item.active {
-	background: var(--soft);
+	background-color: var(--control-hover);
 }
 
 .dd-item-label {
