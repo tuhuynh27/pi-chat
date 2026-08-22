@@ -12,6 +12,7 @@ import Alert from './Alert.svelte';
 import CodeBlock from './CodeBlock.svelte';
 import MdLink from './MdLink.svelte';
 import MermaidBlock from './MermaidBlock.svelte';
+import PlainDel from './PlainDel.svelte';
 import TaskListItem from './TaskListItem.svelte';
 
 export const markdownOptions = {
@@ -34,6 +35,7 @@ export const markdownRenderers = {
 	code: CodeBlock,
 	link: MdLink,
 	listitem: TaskListItem,
+	del: PlainDel,
 	mermaid: MermaidBlock,
 	alert: Alert,
 	inlineKatex: KatexRenderer,

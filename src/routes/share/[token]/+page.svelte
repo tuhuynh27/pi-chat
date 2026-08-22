@@ -167,12 +167,8 @@
 							</section>
 						{:else if item.role === 'assistant'}
 							{#if item.text || item.thinking}
-								<section class="share-turn assistant" aria-label="Keva response">
-									<div class="assistant-mark" aria-hidden="true">K</div>
-									<div class="assistant-content">
-										<span class="turn-label">Keva</span>
-										<MessageItem item={item} />
-									</div>
+								<section class="share-turn assistant" aria-label="Assistant response">
+									<MessageItem item={item} />
 								</section>
 							{/if}
 						{:else if item.role === 'tool'}
@@ -425,35 +421,6 @@
 		overflow-wrap: break-word;
 	}
 
-	.share-turn.assistant {
-		display: grid;
-		grid-template-columns: 30px minmax(0, 1fr);
-		gap: 12px;
-		align-items: start;
-	}
-
-	.assistant-mark {
-		display: grid;
-		place-items: center;
-		width: 30px;
-		height: 30px;
-		background: var(--fg);
-		color: var(--bg);
-		font-size: 13px;
-		font-weight: 700;
-		line-height: 1;
-	}
-
-	.assistant-content {
-		min-width: 0;
-		padding-top: 2px;
-	}
-
-	.share-tool,
-	.share-error {
-		margin-left: 42px;
-	}
-
 	.share-tool {
 		margin-bottom: 18px;
 	}
@@ -625,22 +592,6 @@
 		.share-turn.user .bubble,
 		.share-images {
 			max-width: 88%;
-		}
-
-		.share-turn.assistant {
-			grid-template-columns: 27px minmax(0, 1fr);
-			gap: 10px;
-		}
-
-		.assistant-mark {
-			width: 27px;
-			height: 27px;
-			font-size: 12px;
-		}
-
-		.share-tool,
-		.share-error {
-			margin-left: 37px;
 		}
 
 		.status-panel {
