@@ -65,7 +65,7 @@
 				label="Model"
 				value={model}
 				options={visibleModelOptions}
-				disabled={busy || models.length === 0}
+				disabled={busy}
 				onChange={onModel}
 			/>
 			<Dropdown
