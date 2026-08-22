@@ -422,6 +422,8 @@ select {
 }
 
 .header {
+	position: relative;
+	z-index: 60;
 	display: grid;
 	grid-template-columns: auto minmax(0, 1fr);
 	align-items: center;
@@ -579,6 +581,11 @@ select {
 
 .dd {
 	position: relative;
+	z-index: 0;
+}
+
+.dd.open {
+	z-index: 1000;
 }
 
 .dd-trigger {
@@ -637,7 +644,7 @@ select {
 	position: absolute;
 	top: calc(100% + 4px);
 	right: 0;
-	z-index: 50;
+	z-index: 1001;
 	display: flex;
 	flex-direction: column;
 	min-width: 100%;
@@ -647,6 +654,8 @@ select {
 	overflow-y: auto;
 	background-color: var(--control-menu-bg);
 	background-image: none;
+	opacity: 1;
+	backdrop-filter: none;
 	border: 1px solid var(--line);
 	padding: 4px;
 	scrollbar-width: thin;
@@ -683,6 +692,32 @@ select {
 
 .dd-item.active {
 	background-color: var(--control-hover);
+}
+
+/* Keep chat header controls fully opaque even when the header itself uses
+   translucent chrome. These selectors intentionally outrank generic button
+   styles used elsewhere in the app. */
+.header .dd-trigger,
+.header .dd-trigger:disabled {
+	background: var(--control-bg) !important;
+	opacity: 1;
+	backdrop-filter: none;
+}
+
+.header .dd-trigger:hover:not(:disabled) {
+	background: var(--control-hover) !important;
+}
+
+.header .dd-menu,
+.header .dd-item {
+	background: var(--control-menu-bg) !important;
+	opacity: 1;
+	backdrop-filter: none;
+}
+
+.header .dd-item.active,
+.header .dd-item:hover {
+	background: var(--control-hover) !important;
 }
 
 .dd-item-label {
