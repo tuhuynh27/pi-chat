@@ -511,6 +511,8 @@ select {
 	.context-controls {
 		grid-column: 1 / -1;
 		grid-row: 2;
+		display: grid;
+		grid-template-columns: minmax(0, 1.35fr) minmax(0, 0.9fr) 34px 34px;
 		gap: 6px;
 		width: 100%;
 	}
@@ -535,12 +537,18 @@ select {
 
 	.header .dd {
 		min-width: 0;
-		flex: 1 1 0;
+		width: 100%;
 	}
 
 	.header .dd-trigger {
 		width: 100%;
 		justify-content: space-between;
+		background: var(--bg);
+	}
+
+	.context-controls .dd:first-child .dd-menu {
+		left: 0;
+		right: auto;
 	}
 
 	.header .btn {
@@ -588,11 +596,15 @@ select {
 }
 
 .dd-trigger:disabled {
-	opacity: 0.45;
+	background: var(--soft);
+	color: var(--muted);
+	opacity: 1;
 	cursor: default;
 }
 
 .dd-label {
+	flex: 1;
+	min-width: 0;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;

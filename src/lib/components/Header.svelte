@@ -33,6 +33,14 @@
 	} = $props();
 
 	const levels = ['off', 'minimal', 'low', 'medium', 'high'];
+	const modelOptions = $derived(models.map((item) => ({ value: item.id, label: item.name })));
+	const visibleModelOptions = $derived(
+		modelOptions.length > 0
+			? modelOptions
+			: model
+				? [{ value: model, label: model.split('/').pop() || model }]
+				: []
+	);
 </script>
 
 <header class="header">
@@ -53,15 +61,13 @@
 	</div>
 	<div class="controls">
 		<div class="context-controls">
-			{#if models.length > 0}
-				<Dropdown
-					label="Model"
-					value={model}
-					options={models.map((m) => ({ value: m.id, label: m.name }))}
-					disabled={busy}
-					onChange={onModel}
-				/>
-			{/if}
+			<Dropdown
+				label="Model"
+				value={model}
+				options={visibleModelOptions}
+				disabled={busy || models.length === 0}
+				onChange={onModel}
+			/>
 			<Dropdown
 				label="Thinking level"
 				value={thinking}
