@@ -1138,7 +1138,7 @@
 						</div>
 						{#if modelsLoaded && models.length === 0}
 							<div class="note">
-								No model available. Set a provider API key in <code>.env</code>, then restart the server.
+								The model catalog is unavailable. Check the server connection, then try again.
 							</div>
 						{/if}
 					</div>

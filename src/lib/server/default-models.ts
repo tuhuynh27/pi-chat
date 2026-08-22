@@ -3,7 +3,7 @@
  * supplied as one-line JSON in PI_WEB_MODELS_JSON.
  */
 export const DEFAULT_PROVIDER = process.env.PI_WEB_DEFAULT_PROVIDER?.trim() || 'keva';
-export const DEFAULT_MODEL = process.env.PI_WEB_DEFAULT_MODEL?.trim() || 'qwen3.6-35b-a3b';
+export const DEFAULT_MODEL = process.env.PI_WEB_DEFAULT_MODEL?.trim() || 'qwen3.8-27b';
 type DefaultThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 const THINKING_LEVELS: DefaultThinkingLevel[] = [
 	'off',
@@ -54,13 +54,13 @@ export const DEFAULT_MODELS_CONFIG = {
 			},
 			models: [
 				{
-					id: 'qwen3.6-35b-a3b',
-					name: 'Qwen 3.6 35B A3B',
+					id: 'qwen3.8-27b',
+					name: 'Qwen 3.8 27B',
 					reasoning: true,
 					thinkingLevelMap: QWEN_THINKING_LEVEL_MAP,
-					// Runs with --language-model-only (vision off), see vllm-service
-					input: ['text'],
-					contextWindow: 262144,
+					input: ['text', 'image'],
+					// 130048, not 131072: vision needs ~1K KV headroom (vllm-service)
+					contextWindow: 130048,
 					maxTokens: 16384,
 					cost: {
 						input: 0.1,
@@ -70,13 +70,13 @@ export const DEFAULT_MODELS_CONFIG = {
 					}
 				},
 				{
-					id: 'qwen3.8-27b',
-					name: 'Qwen 3.8 27B',
+					id: 'qwen3.6-35b-a3b',
+					name: 'Qwen 3.6 35B A3B',
 					reasoning: true,
 					thinkingLevelMap: QWEN_THINKING_LEVEL_MAP,
-					input: ['text', 'image'],
-					// 130048, not 131072: vision needs ~1K KV headroom (vllm-service)
-					contextWindow: 130048,
+					// Runs with --language-model-only (vision off), see vllm-service
+					input: ['text'],
+					contextWindow: 262144,
 					maxTokens: 16384,
 					cost: {
 						input: 0.1,

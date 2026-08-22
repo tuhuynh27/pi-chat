@@ -47,7 +47,7 @@ Copy the environment template and set the web login plus at least one model prov
 cp .env.example .env
 ```
 
-Fresh installs default to Keva's `qwen3.6-35b-a3b` model and also include `qwen3.8-27b`. Set `KEVA_API_KEY` for those models, or use a built-in provider key such as `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `GROQ_API_KEY` and select one of its available models.
+Fresh installs load Keva's model list from `https://llm.keva.dev/` and default to `qwen3.8-27b`. The bundled list is used if that catalog is temporarily unavailable. Set `KEVA_API_KEY` to send chat requests, or configure a custom provider catalog.
 
 Pi configuration is environment-only. The application never reads credentials, models, settings, skills, prompts, themes, or extensions from `~/.pi`. `pnpm start` loads `.env` with Node's native environment-file support. Docker should receive the same file with `--env-file .env`.
 
@@ -55,7 +55,7 @@ For a custom provider catalog, set these optional variables:
 
 - `PI_WEB_MODELS_JSON`: the complete, one-line JSON content that would normally be in Pi's `models.json`. API keys should reference another environment variable, for example `"apiKey":"$MY_LLM_API_KEY"`.
 - `PI_WEB_DEFAULT_PROVIDER`: initial provider for a fresh data volume. Defaults to `keva`.
-- `PI_WEB_DEFAULT_MODEL`: initial model for a fresh data volume. Defaults to `qwen3.6-35b-a3b`.
+- `PI_WEB_DEFAULT_MODEL`: initial model for a fresh data volume. Defaults to `qwen3.8-27b`.
 - `PI_WEB_DEFAULT_THINKING`: initial thinking level. Defaults to `high`.
 
 The selected model and thinking level remain application state in the data volume, so existing user choices survive restarts and take precedence over these initial defaults.

@@ -20,10 +20,12 @@ import { join } from 'node:path';
 import { exaExtension } from './exa';
 import {
 	DEFAULT_MODEL,
+	DEFAULT_MODELS_CONFIG,
 	DEFAULT_PROVIDER,
 	DEFAULT_THINKING,
 	modelsConfigFromEnv
 } from './default-models';
+import { getKevaCatalog, kevaModelDefinitions } from './keva-models';
 import {
 	asWebDetails,
 	toolDetail,
@@ -237,7 +239,19 @@ function getIsolatedAgentDir(): Promise<string> {
 	if (!isolatedAgentDir) {
 		isolatedAgentDir = (async () => {
 			const dir = await mkdtemp(join(tmpdir(), 'pi-web-agent-'));
-			await writeFile(join(dir, 'models.json'), JSON.stringify(modelsConfigFromEnv(), null, 2));
+			const configured = modelsConfigFromEnv();
+			const config =
+				configured === DEFAULT_MODELS_CONFIG
+					? {
+							providers: {
+								keva: {
+									...DEFAULT_MODELS_CONFIG.providers.keva,
+									models: kevaModelDefinitions(await getKevaCatalog())
+								}
+							}
+						}
+					: configured;
+			await writeFile(join(dir, 'models.json'), JSON.stringify(config, null, 2));
 			return dir;
 		})();
 		isolatedAgentDir.catch(() => {
@@ -789,9 +803,15 @@ export interface ModelInfo {
 }
 
 export async function listModels(): Promise<ModelInfo[]> {
-	// Snapshot only. getAvailable() re-checks every built-in provider and can
-	// stall the request — the loading screen used to await this on every load.
-	const models = (await getRuntime()).getAvailableSnapshot();
+	const modelRuntime = await getRuntime();
+	// The public Keva service catalog drives the default homepage list. It is
+	// intentionally independent of credential availability: auth is checked
+	// when a chat request is sent, not when the model picker is rendered.
+	const configured = modelsConfigFromEnv();
+	const models =
+		configured === DEFAULT_MODELS_CONFIG
+			? modelRuntime.getModels('keva')
+			: modelRuntime.getAvailableSnapshot();
 	return models
 		.map((m) => ({
 			id: `${m.provider}/${m.id}`,
