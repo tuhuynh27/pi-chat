@@ -2133,6 +2133,19 @@ select {
 	}
 }
 
+/* Camera capture is only meaningful on touch devices with a camera (mobile
+ * Safari/Chrome); desktop file pickers already cover the same use case via
+ * the attach button, so keep this hidden until the mobile breakpoint. */
+.camera {
+	display: none;
+}
+
+@media (max-width: 719px) {
+	.camera {
+		display: grid;
+	}
+}
+
 .attachments {
 	display: flex;
 	gap: 6px;

@@ -27,6 +27,7 @@
 
 	let el: HTMLTextAreaElement;
 	let fileInput: HTMLInputElement;
+	let cameraInput: HTMLInputElement;
 	let attachments = $state<Pending[]>([]);
 	let dragOver = $state(false);
 	let notice = $state('');
@@ -196,6 +197,37 @@
 						fill="none"
 						stroke-linecap="round"
 					/>
+				</svg>
+			</button>
+			<input
+				bind:this={cameraInput}
+				type="file"
+				accept="image/*"
+				capture="environment"
+				disabled={disabled}
+				class="file-input"
+				onchange={(e) => {
+					const files = (e.currentTarget as HTMLInputElement).files;
+					if (files) void addFiles(files);
+					(e.currentTarget as HTMLInputElement).value = '';
+				}}
+			/>
+			<button
+				type="button"
+				class="attach camera"
+				disabled={disabled || attachments.length >= MAX_IMAGES}
+				onclick={() => cameraInput.click()}
+				aria-label="Take photo"
+			>
+				<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+					<path
+						d="M5.5 3.5 6.2 2h3.6l.7 1.5H13a1 1 0 0 1 1 1V12a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4.5a1 1 0 0 1 1-1h2.5Z"
+						stroke="currentColor"
+						stroke-width="1.3"
+						fill="none"
+						stroke-linejoin="round"
+					/>
+					<circle cx="8" cy="8" r="2.4" stroke="currentColor" stroke-width="1.3" fill="none" />
 				</svg>
 			</button>
 			<textarea
