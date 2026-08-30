@@ -3,12 +3,9 @@
 	import type { Theme } from '$lib/theme';
 
 	let {
-		model,
-		models,
 		thinking,
 		busy,
 		theme,
-		onModel,
 		onThinking,
 		onNew,
 		onShare,
@@ -17,12 +14,9 @@
 		onLogout,
 		onToggleTheme
 	}: {
-		model: string;
-		models: { id: string; name: string; provider: string }[];
 		thinking: string;
 		busy: boolean;
 		theme: Theme;
-		onModel: (id: string) => void;
 		onThinking: (level: string) => void;
 		onNew: () => void;
 		onShare: () => void;
@@ -40,14 +34,6 @@
 		medium: 'Med',
 		high: 'High'
 	};
-	const modelOptions = $derived(models.map((item) => ({ value: item.id, label: item.name })));
-	const visibleModelOptions = $derived(
-		modelOptions.length > 0
-			? modelOptions
-			: model
-				? [{ value: model, label: model.split('/').pop() || model }]
-				: []
-	);
 </script>
 
 <header class="header">
@@ -68,13 +54,6 @@
 	</div>
 	<div class="controls">
 		<div class="context-controls">
-			<Dropdown
-				label="Model"
-				value={model}
-				options={visibleModelOptions}
-				disabled={busy}
-				onChange={onModel}
-			/>
 			<Dropdown
 				label="Thinking level"
 				value={thinking}

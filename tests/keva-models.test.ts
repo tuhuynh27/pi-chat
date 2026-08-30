@@ -6,7 +6,7 @@ test('parses the public Keva model catalog and preserves its order', () => {
 	const catalog = parseKevaCatalog({
 		default_model: 'qwen3.8-27b',
 		models: [
-			{ id: 'qwen3.6-35b-a3b', active: false, status: 'unknown' },
+			{ id: 'other-model', active: false, status: 'unknown' },
 			{ id: 'qwen3.8-27b', active: true, status: 'running' }
 		]
 	});
@@ -14,13 +14,13 @@ test('parses the public Keva model catalog and preserves its order', () => {
 	assert.deepEqual(catalog, {
 		defaultModel: 'qwen3.8-27b',
 		models: [
-			{ id: 'qwen3.6-35b-a3b', active: false, status: 'unknown' },
+			{ id: 'other-model', active: false, status: 'unknown' },
 			{ id: 'qwen3.8-27b', active: true, status: 'running' }
 		]
 	});
 	assert.deepEqual(
 		kevaModelDefinitions(catalog).map((model) => model.id),
-		['qwen3.6-35b-a3b', 'qwen3.8-27b']
+		['other-model', 'qwen3.8-27b']
 	);
 });
 

@@ -68,22 +68,6 @@ export const DEFAULT_MODELS_CONFIG = {
 						cacheRead: 0.01,
 						cacheWrite: 0.1
 					}
-				},
-				{
-					id: 'qwen3.6-35b-a3b',
-					name: 'Qwen 3.6 35B A3B',
-					reasoning: true,
-					thinkingLevelMap: QWEN_THINKING_LEVEL_MAP,
-					// Runs with --language-model-only (vision off), see vllm-service
-					input: ['text'],
-					contextWindow: 262144,
-					maxTokens: 16384,
-					cost: {
-						input: 0.1,
-						output: 0.3,
-						cacheRead: 0.01,
-						cacheWrite: 0.1
-					}
 				}
 			]
 		}
