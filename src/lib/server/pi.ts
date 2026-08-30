@@ -75,7 +75,8 @@ export async function parseImages(input: unknown): Promise<ImageAttachment[] | n
 		const contentEnd = data.length - paddingLength;
 		if (contentEnd === 0) return null;
 		for (let offset = 0; offset < contentEnd; offset += BASE64_VALIDATION_CHUNK_SIZE) {
-			if (!BASE64_CHUNK_RE.test(data.slice(offset, offset + BASE64_VALIDATION_CHUNK_SIZE))) {
+			const chunkEnd = Math.min(offset + BASE64_VALIDATION_CHUNK_SIZE, contentEnd);
+			if (!BASE64_CHUNK_RE.test(data.slice(offset, chunkEnd))) {
 				return null;
 			}
 			await new Promise<void>((resolve) => setImmediate(resolve));
